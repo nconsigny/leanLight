@@ -42,6 +42,7 @@ import LeanLightProofs.Spec.Sha256Folds
 import LeanLightProofs.Spec.Ssz
 import LeanLightProofs.SszBranch
 import LeanLightProofs.SszDecode
+import LeanLightProofs.SszDecodeElectra
 import LeanLightProofs.SszFrame
 import LeanLightProofs.SszGindex
 import LeanLightProofs.SszMerkle
