@@ -3,9 +3,9 @@ open Lake DSL
 
 /-!
 The proofs about `LeanLight`: the runtime code is stated against readable specifications
-(`LeanLightProofs.Spec`, the vendored ssz-specs, EthLib's BLS and VCVio's SHA-2) and proved
-equal or sound. Mathlib is required here only; the runtime package imports nothing beyond Lean
-core.
+(`LeanLightProofs.Spec`, the vendored ssz-specs, EthLib's BLS and VCVio's SHA-2 and Keccak) and
+proved equal or sound. Mathlib is required here only; the runtime package imports nothing beyond
+Lean core.
 -/
 
 require mathlib from git

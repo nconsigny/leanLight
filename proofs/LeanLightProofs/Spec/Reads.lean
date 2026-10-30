@@ -1,4 +1,4 @@
--- Moved to proofs/core/LeanLight/El/Reads.lean (docs/spec-16-light-client.md, LC1), namespace kept;
+-- Moved to LeanLight/El/Reads.lean (docs/spec-16-light-client.md, LC1), namespace kept;
 -- this module stays so that its importers build unchanged. G11's nonce rules, which only the UI
 -- runs, are specified here.
 import LeanLight.El.Reads

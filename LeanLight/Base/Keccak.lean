@@ -1,6 +1,7 @@
 /-
 Copyright (c) 2026 Vitalik Buterin, Nicolas Consigny. All rights reserved.
-Released under Apache 2.0 license as described in the file `LeanLightProofs/Vendor/VCVio/LICENSE`.
+Released under Apache 2.0 license as described in the file
+`proofs/LeanLightProofs/Vendor/VCVio/LICENSE`.
 Authors: Vitalik Buterin, Nicolas Consigny
 -/
 
@@ -18,8 +19,7 @@ vendored because VCVio's module imports Mathlib, and nothing compiled into `keyd
 changes, both so that no expression can panic: every `a[i]!` is written `a[i]?.getD 0`, and
 every `set!` is written `setIfInBounds`, the function `set!` abbreviates.
 `LeanLightProofs.Spec.Keccak` proves this `keccak256` equal to `VCVio.Algorithms.Keccak.keccak256`
-at the pinned commit `88efe971` (`proofs/lake-manifest.json`), so the refinement of
-`lkd_verified::keccak` against VCVio's carries over.
+at commit `88efe971` (`proofs/LeanLightProofs/Vendor/VCVio/Keccak.lean`).
 
 Reviewing it against FIPS 202 means checking: `roundConstants` (§3.2.5, ι), `rhoLUT`
 (§3.2.2, ρ offsets with lanes ordered `x + 5y`), `piLUT` (§3.2.3, `(x, y) ↦ (y, 2x + 3y)`),

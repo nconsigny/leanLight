@@ -4,8 +4,8 @@
 The fast layer of the light client's BLS12-381 (`docs/spec-16-light-client.md`, "Cryptography in
 Lean"), moved from the benchmark of 2026-10-24 (`Bls/Field.lean`, written for lkd), whose
 measurements are in "Speed". Its readable specification is EthLib's, vendored in
-`LeanLightProofs.Vendor.EthLib.Bls`, where `Fp` is `Fin p`; `LeanLightProofs` is to prove each operation
-here equal to EthLib's (25c, LC4b). Until then the tests (`LeanLightTests.Bls`) run both layers on the
+`LeanLightProofs.Vendor.EthLib.Bls`, where `Fp` is `Fin p`; `LeanLightProofs.Bls.Fp` proves each
+operation here equal to EthLib's (25c, LC4b), and `LeanLightTests.Bls` also runs both layers on the
 same inputs.
 
 An element is a `Nat` below `P`, and every operation keeps its result below `P` when its
@@ -14,7 +14,7 @@ bits. Verification touches only public data, so nothing here is constant-time.
 
 **`Nat.powMod`**, Lean core's `lean_nat_powmod` (GMP's `mpz_powm`), is called at one site,
 `fpow`, with the modulus `P`, a nonzero literal (`P_ne_zero`): with modulus 0 it would compute
-`b ^ e` and abort above an exponent of 2³²−1. The site is listed in `proofs/ABORTS.allow`.
+`b ^ e` and abort above an exponent of 2³²−1.
 
 Also here, the big-endian byte readers and writers the encodings use (`beNat`, `natBe`).
 -/

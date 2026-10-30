@@ -20,7 +20,7 @@ alone: a library, its proofs, its tests and a command-line client.
 | Directory | What | Imports |
 |---|---|---|
 | `LeanLight/` | The light client: SHA-256, Keccak-256, RLP, SSZ (decoding, `hash_tree_root`, branches), BLS12-381 (fields to `Fp12`, G1, G2, hash-to-G2, the pairing, FastAggregateVerify), the chain table (mainnet, Sepolia, Electra to Gloas), the sync protocol's store, execution-layer headers, Merkle-Patricia proofs, the reads anchored on a verified header, and the inclusion verdict for transactions and receipts | Lean core only |
-| `proofs/` | Theorems about `LeanLight`'s definitions, against readable specifications: the vendored [ssz-specs](https://github.com/ethereum/ssz-specs) (MIT), [EthLib](https://github.com/ethereum/EthLib)'s BLS12-381 (CC0) and [VCVio](https://github.com/Verified-zkEVM/VCVio)'s SHA-2 (Apache-2.0), with Mathlib's elliptic-curve group law | Mathlib |
+| `proofs/` | Theorems about `LeanLight`'s definitions, against readable specifications: the vendored [ssz-specs](https://github.com/ethereum/ssz-specs) (MIT), [EthLib](https://github.com/ethereum/EthLib)'s BLS12-381 (CC0) and [VCVio](https://github.com/Verified-zkEVM/VCVio)'s SHA-2 and Keccak (Apache-2.0), with Mathlib's elliptic-curve group law | Mathlib |
 | `tests/` | consensus-specs' light-client and SSZ vectors, BLS vectors and a differential test against EthLib's readable BLS; recorded mainnet runs replayed offline, honest and forged (`leanlight-client-test`); the offline benchmark (`leanlight-bench`) | `LeanLight` |
 | `Main.lean`, `LeanLightCli/` | `leanlight`, the command-line client (HTTP through `curl`) | `LeanLight` |
 | `bench/` | The comparison with [Helios](https://github.com/a16z/helios) on the same endpoints, and its results | Python 3 |
@@ -71,11 +71,11 @@ module through Lean's kernel. `scripts/check-runtime.sh` refuses any `@[implemen
 What a proof gives, what is assumed, and what is trusted without either.
 
 **Proved.** The theorems are refinements: the runtime definition equals, or is sound against, a
-readable specification (ssz-specs, EthLib's BLS12-381, VCVio's SHA-256, Mathlib's group law,
-the consensus specs' store rules transcribed, the Yellow Paper's trie). A mistake in one of those
-specifications would carry into leanLight; the theorems do not prove the light client secure,
-they prove it computes what those specifications say. The store's statements (bootstrap binds
-the checkpoint, acceptance only after every check, conflicts halt) are about leanLight's own
+readable specification (ssz-specs, EthLib's BLS12-381, VCVio's SHA-256 and Keccak-256, Mathlib's
+group law, the consensus specs' store rules transcribed, the Yellow Paper's trie). A mistake in one
+of those specifications would carry into leanLight; the theorems do not prove the light client
+secure, they prove it computes what those specifications say. The store's statements (bootstrap
+binds the checkpoint, acceptance only after every check, conflicts halt) are about leanLight's own
 store, whose rules are the consensus specs' as transcribed (`docs/spec-16-light-client.md`,
 "The protocol").
 
@@ -245,8 +245,9 @@ Thank you to their authors:
   Lean, its readable layer and its G1 group-law proofs. KeyValidate, hash-to-G2 and
   FastAggregateVerify are proved equal to EthLib's, and the Jacobian formulas' proofs are
   ported from it.
-- **[VCVio](https://github.com/Verified-zkEVM/VCVio)** (Apache-2.0), commit `afa6593f`: SHA-256
-  in Lean, the specification the runtime's SHA-256 is proved against.
+- **[VCVio](https://github.com/Verified-zkEVM/VCVio)** (Apache-2.0), commits `afa6593f` (SHA-256)
+  and `88efe971` (Keccak-256): SHA-256 and Keccak-256 in Lean, the specifications the runtime's
+  hashes are proved against.
 
 They are copied, not required: each file names its source commit, and the copies changed only
 as their headers say. Thanks also to [Mathlib](https://github.com/leanprover-community/mathlib4),

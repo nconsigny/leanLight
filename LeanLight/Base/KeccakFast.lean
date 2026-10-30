@@ -9,7 +9,7 @@ and its sponge XORs the input in one byte at a time. Compiled as it is, it costs
 136-byte block. This file is the same function written for the compiler, about 40 times faster
 (leanKohakuDesktop's `spec/01-keyd.md`, "Cost"), and `keccak256_eq_fast` proves the two equal on every input.
 Registered as a `csimp` equation, it makes every definition compiled after this file is
-imported call `keccak256Fast` wherever its source says `keccak256` (AGENTS.md, "Runtime Lean"),
+imported call `keccak256Fast` wherever its source says `keccak256`,
 while every statement, and every proof about `keccak256`, keeps meaning the readable one.
 
 The fast version:
@@ -27,11 +27,11 @@ The fast version:
 
 Why the equation replaces `keccak256` and not the permutation `f1600`: a `csimp` equation
 changes only the code compiled after it. `absorb`, which calls `f1600`, is compiled in
-`LeanLight.Base.Keccak`, before this file, so an equation for `f1600` would leave it calling the slow
-permutation; and nothing else calls `f1600`. Every caller in the runtime libraries (today
-`LeanLight.Base.Common` and `LeanLight.El.Trie`) calls `keccak256`, and must have this
-file in its imports, directly or not, for the equation to apply to it; `scripts/CheckCore.lean`
-(rule 5) fails on a runtime module that runs the readable Keccak-256.
+`LeanLight.Base.Keccak`, before this file, so an equation for `f1600` would leave it calling the
+slow permutation; and nothing else calls `f1600`. Every caller in the runtime libraries (today
+`LeanLight.Base.Common`, `LeanLight.El.Header` and `LeanLight.El.Trie`) calls `keccak256`, and must
+have this file in its imports, directly or not, for the equation to apply to it; no script checks
+that import (`scripts/check-runtime.sh` only lists the `@[csimp]` equations).
 
 The proof: one round on 25 symbolic lanes, by evaluating the readable `round` at
 `Lanes.toArray s` (`round_toArray`); the 24 rounds (`f1600_toArray`); the inner loop of `absorb`

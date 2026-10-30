@@ -32,6 +32,7 @@ import LeanLightProofs.Sha256
 import LeanLightProofs.Signers
 import LeanLightProofs.Spec.Common
 import LeanLightProofs.Spec.Header
+import LeanLightProofs.Spec.Keccak
 import LeanLightProofs.Spec.Mpt
 import LeanLightProofs.Spec.MptTrie
 import LeanLightProofs.Spec.Reads
@@ -98,4 +99,5 @@ import LeanLightProofs.Vendor.SszSpecs.Ssz.Type.Desc
 import LeanLightProofs.Vendor.SszSpecs.Ssz.Type.Paths
 import LeanLightProofs.Vendor.SszSpecs.Ssz.Type.Valid
 import LeanLightProofs.Vendor.SszSpecs.Ssz.Type.Value
+import LeanLightProofs.Vendor.VCVio.Keccak
 import LeanLightProofs.Vendor.VCVio.Sha2

@@ -6,8 +6,8 @@ import Mathlib.Data.Finset.Card
 # The store: what an update can and cannot do (25d to 25i)
 
 About `LeanLight.Store`, the code `lkd-lc` runs. Every theorem is about `receive`, the one way an
-update enters a store, and `bootstrap`, the one way a store begins; `LeanLightProofs.Evidence`
-shows the evidence and the core reach stores only through them.
+update enters a store, and `bootstrap`, the one way a store begins; `LeanLightProofs.Driver`
+shows the driver reaches stores only through them.
 
 **How `receive` decides** (`receive_cases`): an update leaves the store exactly as it was, or it
 `Passed` every check before and including BLS (not halted, `formOk`, a committee held for its
