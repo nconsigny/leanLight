@@ -152,7 +152,7 @@ scripts/check-axioms.sh && scripts/check-kernel.sh
 ## The client
 
 ```sh
-leanlight [--network mainnet|sepolia] --consensus-rpc URL --execution-rpc URL \
+leanlight [--network mainnet|sepolia] --consensus-rpc URL[,URL...] --execution-rpc URL[,URL...] \
           (--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--json] [-v] COMMAND
 ```
 
@@ -172,16 +172,23 @@ beacon API serves JSON only). Pass `--checkpoint 0xROOT` with a root you got els
 `--unsafe-untrusted-checkpoint` to take the node's finalized root on trust. Example:
 
 ```sh
-leanlight --consensus-rpc http://testing.mainnet.beacon-api.nimbus.team \
-  --execution-rpc https://ethereum-rpc.publicnode.com \
+leanlight --consensus-rpc http://testing.mainnet.beacon-api.nimbus.team,https://lodestar-mainnet.chainsafe.io \
+  --execution-rpc https://ethereum-rpc.publicnode.com,https://eth.drpc.org \
   --unsafe-untrusted-checkpoint \
   balance 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 ```
 
 The client syncs in one round trip (bootstrap, the current period's update, the finality and
 optimistic updates fetched together; older periods after) and fetches a whole set of reads in
-one JSON-RPC batch. Every value it prints comes out of `LeanLight`'s checked readers, never out
-of the JSON.
+one JSON-RPC batch, started while the sync is checked, at the block the optimistic update names:
+when the checked anchor is that block, the reads are there when the sync ends. Given several
+beacon nodes or execution endpoints, it asks them all at once and takes the first answer that
+verifies, and every node's finality and optimistic updates that have arrived, so a fast node
+behind the others does not hold the anchor back. A batch an endpoint refuses is halved, and a
+429 backed off. A signed header two updates repeat is checked once. None of this is in what the
+proofs cover, and none needs to be: every value it prints comes out of `LeanLight`'s checked
+readers, from a store only `Driver.start` and `Driver.feed` made (`read_sound`), never out of the
+JSON.
 
 ## Speed
 
