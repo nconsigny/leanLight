@@ -4,42 +4,42 @@
   "consensus": "http://testing.mainnet.beacon-api.nimbus.team",
   "execution": "https://ethereum-rpc.publicnode.com",
   "round": 0,
-  "checkpoint": "0xbc69e26266f0c8a4b06c8adb69d90bed84445c61f4888e825f7628a681c2a322",
+  "checkpoint": "0x6262ebaff406a3c63017ff5265dbe8cf217d252c75d8663e306b7f1c66977018",
   "age_periods": 6,
   "order": [
    "helios",
    "leanlight"
   ],
   "helios": {
-   "sync_s": 1.0147379860063666,
-   "cpu_s": 0.26,
-   "rss_kb": 26168,
-   "block": 26305742
+   "sync_s": 1.0345474810019368,
+   "cpu_s": 0.3,
+   "rss_kb": 26020,
+   "block": 26307143
   },
   "leanlight": {
-   "wall_s": 1.3268176159981522,
-   "sync_s": 1.19,
-   "sync_net_s": 0.911,
-   "sync_verify_s": 0.278,
-   "updates": 9,
+   "wall_s": 1.0705429070003447,
+   "sync_s": 1.059,
+   "sync_net_s": 0.834,
+   "sync_verify_s": 0.367,
+   "updates": 8,
    "refused": [],
-   "cpu_s": 0.320944,
-   "rss_kb": 28072,
+   "cpu_s": 0.411438,
+   "rss_kb": 27652,
    "anchor": {
     "phase": "anchor",
-    "block": 26305742,
-    "hash": "0x4e92b32fb1f3361034e4593b9fedd1532ef5fe3b915af21fb58fdb5c7baab2e4",
+    "block": 26307143,
+    "hash": "0x4f755b47d1216ceed330e604ce93311ec5bc27a87198918f59130d088c604992",
     "reads": 14,
-    "ms": 128,
-    "net_ms": 127,
+    "ms": 0,
+    "net_ms": 0,
     "verify_ms": 0,
-    "requests": 1,
-    "bytes": 159837
+    "requests": 0,
+    "bytes": 0
    },
    "reads": [
     {
      "q": "block-number",
-     "value": 26305742,
+     "value": 26307143,
      "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
@@ -49,7 +49,7 @@
     {
      "q": "balance",
      "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0x50352a4946efd394",
      "ms": 0,
      "net_ms": 0,
@@ -60,9 +60,9 @@
     {
      "q": "nonce",
      "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0x1751",
-     "ms": 0,
+     "ms": 1,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -71,8 +71,8 @@
     {
      "q": "balance",
      "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
-     "block": 26305742,
-     "value": "0x4ce2be9f019c512e2e7d16",
+     "block": 26307143,
+     "value": "0x4ce2fe98850e15f18a3316",
      "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
@@ -82,7 +82,7 @@
     {
      "q": "balance",
      "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0xb25f6ad613f513f",
      "ms": 0,
      "net_ms": 0,
@@ -93,7 +93,7 @@
     {
      "q": "nonce",
      "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0x120a00b",
      "ms": 1,
      "net_ms": 0,
@@ -104,7 +104,7 @@
     {
      "q": "balance",
      "addr": "0x0123456789abcdef0123456789abcdef01234567",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0x729505f2a78d15",
      "ms": 0,
      "net_ms": 0,
@@ -115,22 +115,22 @@
     {
      "q": "code",
      "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
      "size": 3124,
-     "ms": 0,
+     "ms": 1,
      "net_ms": 0,
-     "verify_ms": 0,
+     "verify_ms": 1,
      "requests": 0,
      "bytes": 0
     },
     {
      "q": "code",
      "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
      "size": 2186,
-     "ms": 1,
+     "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -139,10 +139,10 @@
     {
      "q": "code",
      "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
-     "block": 26305742,
+     "block": 26307143,
      "value": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
      "size": 6358,
-     "ms": 0,
+     "ms": 1,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -151,12 +151,28 @@
     {
      "q": "storage",
      "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-     "block": 26305742,
+     "block": 26307143,
      "slots": [
       "0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca"
      ],
      "value": [
       "0x000000000000000000000000000000000000000000000000145a277acf9c9ab6"
+     ],
+     "ms": 0,
+     "net_ms": 0,
+     "verify_ms": 0,
+     "requests": 0,
+     "bytes": 0
+    },
+    {
+     "q": "storage",
+     "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+     "block": 26307143,
+     "slots": [
+      "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3"
+     ],
+     "value": [
+      "0x00000000000000000000000043506849d7c04f9138d1a2050bbf3a0c054402dd"
      ],
      "ms": 1,
      "net_ms": 0,
@@ -167,23 +183,7 @@
     {
      "q": "storage",
      "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305742,
-     "slots": [
-      "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3"
-     ],
-     "value": [
-      "0x00000000000000000000000043506849d7c04f9138d1a2050bbf3a0c054402dd"
-     ],
-     "ms": 0,
-     "net_ms": 0,
-     "verify_ms": 0,
-     "requests": 0,
-     "bytes": 0
-    },
-    {
-     "q": "storage",
-     "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305742,
+     "block": 26307143,
      "slots": [
       "0x07081a045c3dbf2e63b62a407ef205e7586e2629d2e2b95ff093308ca0ff3727"
      ],
@@ -199,12 +199,12 @@
     {
      "q": "storage",
      "addr": "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640",
-     "block": 26305742,
+     "block": 26307143,
      "slots": [
       "0x0"
      ],
      "value": [
-      "0x00014402d302d301e1030a3300000000000052b4c6d26f5b47ffe21ae9c99b09"
+      "0x00014402d302d30208030a090000000000005288f88a1b98fda753b0c98220db"
      ],
      "ms": 0,
      "net_ms": 0,
@@ -222,10 +222,10 @@
     "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
-    "leanlight": 26305742,
-    "reference": 26305742,
-    "helios": 26305742,
-    "helios_ms": 0.6908369978191331,
+    "leanlight": 26307143,
+    "reference": 26307143,
+    "helios": 26307143,
+    "helios_ms": 1.1263709966442548,
     "helios_tag": "latest"
    },
    {
@@ -237,22 +237,23 @@
     "leanlight_verify_ms": 0,
     "leanlight": 5779572191011001236,
     "reference": 5779572191011001236,
+    "helios_error": "eth_getBalance: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": 5779572191011001236,
-    "helios_ms": 32.13557599519845,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 28.26836899475893,
+    "helios_tag": "latest"
    },
    {
     "q": "nonce",
     "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": 5969,
     "reference": 5969,
     "helios": 5969,
-    "helios_ms": 0.4320270018070005,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 2.3170529966591857,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
@@ -261,11 +262,11 @@
     "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
-    "leanlight": 92949133454825161399106838,
-    "reference": 92949133454825161399106838,
-    "helios": 92949133454825161399106838,
-    "helios_ms": 30.092582004726864,
-    "helios_tag": "0x19164ce"
+    "leanlight": 92950313579041032399106838,
+    "reference": 92950313579041032399106838,
+    "helios": 92950313579041032399106838,
+    "helios_ms": 29.21221400174545,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
@@ -276,9 +277,10 @@
     "leanlight_verify_ms": 0,
     "leanlight": 803319333076816191,
     "reference": 803319333076816191,
+    "helios_error": "eth_getBalance: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": 803319333076816191,
-    "helios_ms": 34.31963799812365,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 38.45252300379798,
+    "helios_tag": "latest"
    },
    {
     "q": "nonce",
@@ -290,8 +292,8 @@
     "leanlight": 18915339,
     "reference": 18915339,
     "helios": 18915339,
-    "helios_ms": 0.660067998978775,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 1.3321689984877594,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
@@ -303,47 +305,49 @@
     "leanlight": 32252000123456789,
     "reference": 32252000123456789,
     "helios": 32252000123456789,
-    "helios_ms": 31.698168997536413,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 28.41881399945123,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "code",
     "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
-    "leanlight_verify_ms": 0,
+    "leanlight_verify_ms": 1,
     "leanlight": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
     "reference": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
+    "helios_error": "eth_getCode: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
-    "helios_ms": 63.37571000040043,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 80.72656300646486,
+    "helios_tag": "latest"
    },
    {
     "q": "code",
     "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     "slots": null,
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
     "reference": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
     "helios": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
-    "helios_ms": 70.4319159995066,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 71.51906799845165,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "code",
     "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
     "reference": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
+    "helios_error": "eth_getCode: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
-    "helios_ms": 61.503707998781465,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 80.74783399933949,
+    "helios_tag": "latest"
    },
    {
     "q": "storage",
@@ -351,7 +355,7 @@
     "slots": [
      "0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca"
     ],
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
@@ -363,8 +367,8 @@
     "helios": [
      1466528037085158070
     ],
-    "helios_ms": 34.12545999890426,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 29.398165999737103,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -372,7 +376,7 @@
     "slots": [
      "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3"
     ],
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
@@ -384,8 +388,8 @@
     "helios": [
      384295526066211940175725022778205173214649516765
     ],
-    "helios_ms": 30.63511799700791,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 31.06168300291756,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -402,12 +406,11 @@
     "reference": [
      57896044618658097711785492504343953926634992332820282019728792004008927939520
     ],
-    "helios_error": "eth_getStorageAt: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": [
      57896044618658097711785492504343953926634992332820282019728792004008927939520
     ],
-    "helios_ms": 29.51360700535588,
-    "helios_tag": "latest"
+    "helios_ms": 31.066221999935806,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -419,16 +422,16 @@
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
-     2236241958308847034350934861896689207381404747418299159916522871424916233
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
     "reference": [
-     2236241958308847034350934861896689207381404747418299159916522871424916233
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
     "helios": [
-     2236241958308847034350934861896689207381404747418299159916522871424916233
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
-    "helios_ms": 29.8505649989238,
-    "helios_tag": "0x19164ce"
+    "helios_ms": 40.74492899962934,
+    "helios_tag": "0x1916a47"
    }
   ]
  },
@@ -437,36 +440,36 @@
   "consensus": "http://testing.mainnet.beacon-api.nimbus.team",
   "execution": "https://ethereum-rpc.publicnode.com",
   "round": 1,
-  "checkpoint": "0xbc69e26266f0c8a4b06c8adb69d90bed84445c61f4888e825f7628a681c2a322",
+  "checkpoint": "0x6262ebaff406a3c63017ff5265dbe8cf217d252c75d8663e306b7f1c66977018",
   "age_periods": 6,
   "order": [
    "leanlight",
    "helios"
   ],
   "leanlight": {
-   "wall_s": 0.916988876000687,
-   "sync_s": 0.821,
-   "sync_net_s": 0.628,
-   "sync_verify_s": 0.191,
-   "updates": 9,
+   "wall_s": 1.4082221580029,
+   "sync_s": 1.395,
+   "sync_net_s": 1.219,
+   "sync_verify_s": 0.272,
+   "updates": 8,
    "refused": [],
-   "cpu_s": 0.24049099999999995,
-   "rss_kb": 73272,
+   "cpu_s": 0.368121,
+   "rss_kb": 57400,
    "anchor": {
     "phase": "anchor",
-    "block": 26305743,
-    "hash": "0x1b474524da297da027688a5e17c9655e1d921beb0e56dc38837f510e54d4a7b1",
+    "block": 26307143,
+    "hash": "0x4f755b47d1216ceed330e604ce93311ec5bc27a87198918f59130d088c604992",
     "reads": 14,
-    "ms": 86,
-    "net_ms": 86,
+    "ms": 1,
+    "net_ms": 0,
     "verify_ms": 0,
-    "requests": 1,
-    "bytes": 146576
+    "requests": 0,
+    "bytes": 0
    },
    "reads": [
     {
      "q": "block-number",
-     "value": 26305743,
+     "value": 26307143,
      "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
@@ -476,7 +479,7 @@
     {
      "q": "balance",
      "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x50352a4946efd394",
      "ms": 0,
      "net_ms": 0,
@@ -487,19 +490,8 @@
     {
      "q": "nonce",
      "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x1751",
-     "ms": 1,
-     "net_ms": 0,
-     "verify_ms": 0,
-     "requests": 0,
-     "bytes": 0
-    },
-    {
-     "q": "balance",
-     "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
-     "block": 26305743,
-     "value": "0x4ce2be9f019c512e2e7d16",
      "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
@@ -508,8 +500,19 @@
     },
     {
      "q": "balance",
+     "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
+     "block": 26307143,
+     "value": "0x4ce2fe98850e15f18a3316",
+     "ms": 1,
+     "net_ms": 0,
+     "verify_ms": 0,
+     "requests": 0,
+     "bytes": 0
+    },
+    {
+     "q": "balance",
      "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0xb25f6ad613f513f",
      "ms": 0,
      "net_ms": 0,
@@ -520,9 +523,9 @@
     {
      "q": "nonce",
      "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x120a00b",
-     "ms": 1,
+     "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -531,9 +534,9 @@
     {
      "q": "balance",
      "addr": "0x0123456789abcdef0123456789abcdef01234567",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x729505f2a78d15",
-     "ms": 0,
+     "ms": 1,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -542,7 +545,7 @@
     {
      "q": "code",
      "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
      "size": 3124,
      "ms": 0,
@@ -554,7 +557,7 @@
     {
      "q": "code",
      "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
      "size": 2186,
      "ms": 1,
@@ -566,10 +569,10 @@
     {
      "q": "code",
      "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
      "size": 6358,
-     "ms": 1,
+     "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -578,28 +581,12 @@
     {
      "q": "storage",
      "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-     "block": 26305743,
+     "block": 26307143,
      "slots": [
       "0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca"
      ],
      "value": [
       "0x000000000000000000000000000000000000000000000000145a277acf9c9ab6"
-     ],
-     "ms": 0,
-     "net_ms": 0,
-     "verify_ms": 0,
-     "requests": 0,
-     "bytes": 0
-    },
-    {
-     "q": "storage",
-     "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305743,
-     "slots": [
-      "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3"
-     ],
-     "value": [
-      "0x00000000000000000000000043506849d7c04f9138d1a2050bbf3a0c054402dd"
      ],
      "ms": 1,
      "net_ms": 0,
@@ -610,14 +597,30 @@
     {
      "q": "storage",
      "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305743,
+     "block": 26307143,
+     "slots": [
+      "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3"
+     ],
+     "value": [
+      "0x00000000000000000000000043506849d7c04f9138d1a2050bbf3a0c054402dd"
+     ],
+     "ms": 0,
+     "net_ms": 0,
+     "verify_ms": 0,
+     "requests": 0,
+     "bytes": 0
+    },
+    {
+     "q": "storage",
+     "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+     "block": 26307143,
      "slots": [
       "0x07081a045c3dbf2e63b62a407ef205e7586e2629d2e2b95ff093308ca0ff3727"
      ],
      "value": [
       "0x8000000000000000000000000000000000000000000000000000000c3115cbc0"
      ],
-     "ms": 0,
+     "ms": 1,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -626,14 +629,14 @@
     {
      "q": "storage",
      "addr": "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640",
-     "block": 26305743,
+     "block": 26307143,
      "slots": [
       "0x0"
      ],
      "value": [
-      "0x00014402d302d301e1030a3300000000000052b4dfe2556905d9f5ae845d4f71"
+      "0x00014402d302d30208030a090000000000005288f88a1b98fda753b0c98220db"
      ],
-     "ms": 1,
+     "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -642,10 +645,10 @@
    ]
   },
   "helios": {
-   "sync_s": 0.9135223070043139,
-   "cpu_s": 0.17,
-   "rss_kb": 25028,
-   "block": 26305743
+   "sync_s": 0.9940370289987186,
+   "cpu_s": 0.22,
+   "rss_kb": 25432,
+   "block": 26307143
   },
   "reads": [
    {
@@ -655,10 +658,10 @@
     "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
-    "leanlight": 26305743,
-    "reference": 26305743,
-    "helios": 26305743,
-    "helios_ms": 0.29650099895661697,
+    "leanlight": 26307143,
+    "reference": 26307143,
+    "helios": 26307143,
+    "helios_ms": 0.5577140036621131,
     "helios_tag": "latest"
    },
    {
@@ -671,34 +674,34 @@
     "leanlight": 5779572191011001236,
     "reference": 5779572191011001236,
     "helios": 5779572191011001236,
-    "helios_ms": 68.36858399765333,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 36.06960499746492,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "nonce",
     "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
     "slots": null,
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": 5969,
     "reference": 5969,
     "helios": 5969,
-    "helios_ms": 0.4876219973084517,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 1.3008210007683374,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
     "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
-    "leanlight": 92949133454825161399106838,
-    "reference": 92949133454825161399106838,
-    "helios": 92949133454825161399106838,
-    "helios_ms": 28.575862997968215,
-    "helios_tag": "0x19164cf"
+    "leanlight": 92950313579041032399106838,
+    "reference": 92950313579041032399106838,
+    "helios": 92950313579041032399106838,
+    "helios_ms": 27.644770001643337,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
@@ -709,35 +712,34 @@
     "leanlight_verify_ms": 0,
     "leanlight": 803319333076816191,
     "reference": 803319333076816191,
-    "helios": 803319333076816191,
-    "helios_ms": 30.186389994923957,
-    "helios_tag": "0x19164cf"
+    "helios_error": "eth_getBalance: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}"
    },
    {
     "q": "nonce",
     "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
     "slots": null,
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": 18915339,
     "reference": 18915339,
     "helios": 18915339,
-    "helios_ms": 0.8245300050475635,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 36.356568001792766,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
     "addr": "0x0123456789abcdef0123456789abcdef01234567",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": 32252000123456789,
     "reference": 32252000123456789,
+    "helios_error": "eth_getBalance: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": 32252000123456789,
-    "helios_ms": 29.654503996425774,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 53.704662997915875,
+    "helios_tag": "latest"
    },
    {
     "q": "code",
@@ -748,9 +750,10 @@
     "leanlight_verify_ms": 0,
     "leanlight": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
     "reference": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
+    "helios_error": "eth_getCode: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
-    "helios_ms": 68.81292400066741,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 92.75600700493669,
+    "helios_tag": "latest"
    },
    {
     "q": "code",
@@ -762,21 +765,21 @@
     "leanlight": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
     "reference": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
     "helios": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
-    "helios_ms": 62.65165000513662,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 73.29436700092629,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "code",
     "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
     "slots": null,
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
     "reference": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
     "helios": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
-    "helios_ms": 65.47027200576849,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 97.68359900044743,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -784,7 +787,7 @@
     "slots": [
      "0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca"
     ],
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
@@ -796,8 +799,8 @@
     "helios": [
      1466528037085158070
     ],
-    "helios_ms": 28.461056004744023,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 31.28464500332484,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -805,7 +808,7 @@
     "slots": [
      "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3"
     ],
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
@@ -817,8 +820,8 @@
     "helios": [
      384295526066211940175725022778205173214649516765
     ],
-    "helios_ms": 27.961189996858593,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 29.453492003085557,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -826,7 +829,7 @@
     "slots": [
      "0x07081a045c3dbf2e63b62a407ef205e7586e2629d2e2b95ff093308ca0ff3727"
     ],
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
@@ -838,8 +841,8 @@
     "helios": [
      57896044618658097711785492504343953926634992332820282019728792004008927939520
     ],
-    "helios_ms": 27.968383001280017,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 36.23307399539044,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -847,20 +850,20 @@
     "slots": [
      "0x0"
     ],
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
-     2236241958308847034350934861896689207381404755174644690523370346554150769
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
     "reference": [
-     2236241958308847034350934861896689207381404755174644690523370346554150769
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
     "helios": [
-     2236241958308847034350934861896689207381404755174644690523370346554150769
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
-    "helios_ms": 32.539510997594334,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 34.898419995442964,
+    "helios_tag": "0x1916a47"
    }
   ]
  },
@@ -869,42 +872,42 @@
   "consensus": "http://testing.mainnet.beacon-api.nimbus.team",
   "execution": "https://ethereum-rpc.publicnode.com",
   "round": 2,
-  "checkpoint": "0xbc69e26266f0c8a4b06c8adb69d90bed84445c61f4888e825f7628a681c2a322",
+  "checkpoint": "0x6262ebaff406a3c63017ff5265dbe8cf217d252c75d8663e306b7f1c66977018",
   "age_periods": 6,
   "order": [
    "helios",
    "leanlight"
   ],
   "helios": {
-   "sync_s": 1.3173283130017808,
-   "cpu_s": 0.18,
-   "rss_kb": 24504,
-   "block": 26305743
+   "sync_s": 1.0983383970014984,
+   "cpu_s": 0.27,
+   "rss_kb": 25212,
+   "block": 26307143
   },
   "leanlight": {
-   "wall_s": 1.0342796670011012,
-   "sync_s": 0.939,
-   "sync_net_s": 0.659,
-   "sync_verify_s": 0.277,
-   "updates": 9,
+   "wall_s": 1.013112041997374,
+   "sync_s": 1.001,
+   "sync_net_s": 0.793,
+   "sync_verify_s": 0.304,
+   "updates": 8,
    "refused": [],
-   "cpu_s": 0.330552,
-   "rss_kb": 73272,
+   "cpu_s": 0.3845940000000001,
+   "rss_kb": 57400,
    "anchor": {
     "phase": "anchor",
-    "block": 26305743,
-    "hash": "0x1b474524da297da027688a5e17c9655e1d921beb0e56dc38837f510e54d4a7b1",
+    "block": 26307143,
+    "hash": "0x4f755b47d1216ceed330e604ce93311ec5bc27a87198918f59130d088c604992",
     "reads": 14,
-    "ms": 88,
-    "net_ms": 87,
+    "ms": 0,
+    "net_ms": 0,
     "verify_ms": 0,
-    "requests": 1,
-    "bytes": 146576
+    "requests": 0,
+    "bytes": 0
    },
    "reads": [
     {
      "q": "block-number",
-     "value": 26305743,
+     "value": 26307143,
      "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
@@ -914,18 +917,18 @@
     {
      "q": "balance",
      "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x50352a4946efd394",
-     "ms": 1,
+     "ms": 0,
      "net_ms": 0,
-     "verify_ms": 1,
+     "verify_ms": 0,
      "requests": 0,
      "bytes": 0
     },
     {
      "q": "nonce",
      "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x1751",
      "ms": 0,
      "net_ms": 0,
@@ -936,9 +939,9 @@
     {
      "q": "balance",
      "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
-     "block": 26305743,
-     "value": "0x4ce2be9f019c512e2e7d16",
-     "ms": 0,
+     "block": 26307143,
+     "value": "0x4ce2fe98850e15f18a3316",
+     "ms": 1,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -947,7 +950,7 @@
     {
      "q": "balance",
      "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0xb25f6ad613f513f",
      "ms": 0,
      "net_ms": 0,
@@ -958,9 +961,9 @@
     {
      "q": "nonce",
      "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x120a00b",
-     "ms": 1,
+     "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -969,18 +972,18 @@
     {
      "q": "balance",
      "addr": "0x0123456789abcdef0123456789abcdef01234567",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x729505f2a78d15",
-     "ms": 0,
+     "ms": 1,
      "net_ms": 0,
-     "verify_ms": 0,
+     "verify_ms": 1,
      "requests": 0,
      "bytes": 0
     },
     {
      "q": "code",
      "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
      "size": 3124,
      "ms": 0,
@@ -992,10 +995,10 @@
     {
      "q": "code",
      "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
      "size": 2186,
-     "ms": 0,
+     "ms": 1,
      "net_ms": 0,
      "verify_ms": 0,
      "requests": 0,
@@ -1004,25 +1007,9 @@
     {
      "q": "code",
      "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
-     "block": 26305743,
+     "block": 26307143,
      "value": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
      "size": 6358,
-     "ms": 1,
-     "net_ms": 0,
-     "verify_ms": 0,
-     "requests": 0,
-     "bytes": 0
-    },
-    {
-     "q": "storage",
-     "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-     "block": 26305743,
-     "slots": [
-      "0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca"
-     ],
-     "value": [
-      "0x000000000000000000000000000000000000000000000000145a277acf9c9ab6"
-     ],
      "ms": 0,
      "net_ms": 0,
      "verify_ms": 0,
@@ -1031,8 +1018,24 @@
     },
     {
      "q": "storage",
+     "addr": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+     "block": 26307143,
+     "slots": [
+      "0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca"
+     ],
+     "value": [
+      "0x000000000000000000000000000000000000000000000000145a277acf9c9ab6"
+     ],
+     "ms": 1,
+     "net_ms": 0,
+     "verify_ms": 0,
+     "requests": 0,
+     "bytes": 0
+    },
+    {
+     "q": "storage",
      "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305743,
+     "block": 26307143,
      "slots": [
       "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3"
      ],
@@ -1048,7 +1051,7 @@
     {
      "q": "storage",
      "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-     "block": 26305743,
+     "block": 26307143,
      "slots": [
       "0x07081a045c3dbf2e63b62a407ef205e7586e2629d2e2b95ff093308ca0ff3727"
      ],
@@ -1064,12 +1067,12 @@
     {
      "q": "storage",
      "addr": "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640",
-     "block": 26305743,
+     "block": 26307143,
      "slots": [
       "0x0"
      ],
      "value": [
-      "0x00014402d302d301e1030a3300000000000052b4dfe2556905d9f5ae845d4f71"
+      "0x00014402d302d30208030a090000000000005288f88a1b98fda753b0c98220db"
      ],
      "ms": 0,
      "net_ms": 0,
@@ -1087,24 +1090,24 @@
     "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
-    "leanlight": 26305743,
-    "reference": 26305743,
-    "helios": 26305743,
-    "helios_ms": 0.9410499988007359,
+    "leanlight": 26307143,
+    "reference": 26307143,
+    "helios": 26307143,
+    "helios_ms": 1.0184359998675063,
     "helios_tag": "latest"
    },
    {
     "q": "balance",
     "addr": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
     "slots": null,
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
-    "leanlight_verify_ms": 1,
+    "leanlight_verify_ms": 0,
     "leanlight": 5779572191011001236,
     "reference": 5779572191011001236,
     "helios": 5779572191011001236,
-    "helios_ms": 26.82296699640574,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 40.7288489950588,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "nonce",
@@ -1116,21 +1119,21 @@
     "leanlight": 5969,
     "reference": 5969,
     "helios": 5969,
-    "helios_ms": 0.5831029993714765,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 1.9760880022658966,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
     "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
-    "leanlight": 92949133454825161399106838,
-    "reference": 92949133454825161399106838,
-    "helios": 92949133454825161399106838,
-    "helios_ms": 29.62616999866441,
-    "helios_tag": "0x19164cf"
+    "leanlight": 92950313579041032399106838,
+    "reference": 92950313579041032399106838,
+    "helios": 92950313579041032399106838,
+    "helios_ms": 30.480995003017597,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
@@ -1142,34 +1145,34 @@
     "leanlight": 803319333076816191,
     "reference": 803319333076816191,
     "helios": 803319333076816191,
-    "helios_ms": 28.32322500034934,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 33.65385600045556,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "nonce",
     "addr": "0x28C6c06298d514Db089934071355E5743bf21d60",
     "slots": null,
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": 18915339,
     "reference": 18915339,
     "helios": 18915339,
-    "helios_ms": 0.6408319968613796,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 3.7453149998327717,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "balance",
     "addr": "0x0123456789abcdef0123456789abcdef01234567",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
-    "leanlight_verify_ms": 0,
+    "leanlight_verify_ms": 1,
     "leanlight": 32252000123456789,
     "reference": 32252000123456789,
     "helios": 32252000123456789,
-    "helios_ms": 26.829640002688393,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 30.36178999900585,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "code",
@@ -1181,35 +1184,34 @@
     "leanlight": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
     "reference": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
     "helios": "0xd0a06b12ac47863b5c7be4185c2deaad1c61557033f56c7d4ea74429cbb25e23",
-    "helios_ms": 79.67687400378054,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 81.02907599823084,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "code",
     "addr": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     "slots": null,
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
     "reference": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
-    "helios_error": "eth_getCode: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505",
-    "helios_ms": 61.93317999714054,
-    "helios_tag": "latest"
+    "helios_ms": 79.3658399998094,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "code",
     "addr": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
     "slots": null,
-    "leanlight_ms": 1,
+    "leanlight_ms": 0,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
     "reference": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
     "helios": "0x6c029a231254fadb724d63be769f75eedd66362df034a3e663252b49d062a666",
-    "helios_ms": 69.71578199591022,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 77.18566699622897,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -1217,7 +1219,7 @@
     "slots": [
      "0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca"
     ],
-    "leanlight_ms": 0,
+    "leanlight_ms": 1,
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
@@ -1229,8 +1231,8 @@
     "helios": [
      1466528037085158070
     ],
-    "helios_ms": 29.226553997432347,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 40.280371002154425,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -1250,8 +1252,8 @@
     "helios": [
      384295526066211940175725022778205173214649516765
     ],
-    "helios_ms": 27.58765299950028,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 31.37293199688429,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -1271,8 +1273,8 @@
     "helios": [
      57896044618658097711785492504343953926634992332820282019728792004008927939520
     ],
-    "helios_ms": 31.410674993821885,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 35.976810002466664,
+    "helios_tag": "0x1916a47"
    },
    {
     "q": "storage",
@@ -1284,16 +1286,17 @@
     "leanlight_net_ms": 0,
     "leanlight_verify_ms": 0,
     "leanlight": [
-     2236241958308847034350934861896689207381404755174644690523370346554150769
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
     "reference": [
-     2236241958308847034350934861896689207381404755174644690523370346554150769
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
+    "helios_error": "eth_getStorageAt: {'code': 1, 'message': 'server returned an error response: error code -32602: distance to target block exceeds maximum proof window'}",
     "helios": [
-     2236241958308847034350934861896689207381404755174644690523370346554150769
+     2236241958308847990628090979142568925067381663795917318103438761130074331
     ],
-    "helios_ms": 27.801869000541046,
-    "helios_tag": "0x19164cf"
+    "helios_ms": 25.244821001251694,
+    "helios_tag": "latest"
    }
   ]
  }
