@@ -1,0 +1,51 @@
+# leanlight-bench, 2026-10-30T12:32Z, 32 cores, load average 20.99 20.38 19.83 (a shared machine); main b3d51ac
+
+## LEAN_NUM_THREADS=1
+mainnet-fresh: 1 period update(s), 13 reads, median of 15 runs
+  bootstrap      2.6 ms
+  period update  21.7 ms
+  finality       17.4 ms
+  optimistic     16.4 ms
+  header         15 µs
+  reads          811 µs
+  total          59.1 ms
+mainnet-week: 7 period update(s), 0 reads, median of 15 runs
+  bootstrap      2.3 ms
+  period update  21.1 ms, 20.9 ms, 21.4 ms, 21.1 ms, 20.8 ms, 20.8 ms, 20.8 ms
+  finality       16.4 ms
+  optimistic     16.2 ms
+  header         15 µs
+  reads          0 µs
+  total          182.2 ms
+
+## LEAN_NUM_THREADS=4
+mainnet-fresh: 1 period update(s), 13 reads, median of 15 runs
+  bootstrap      2.2 ms
+  period update  20.1 ms
+  finality       16.0 ms
+  optimistic     16.3 ms
+  header         15 µs
+  reads          810 µs
+  total          55.6 ms
+mainnet-week: 7 period update(s), 0 reads, median of 15 runs
+  bootstrap      2.3 ms
+  period update  20.6 ms, 20.6 ms, 35.5 ms, 36.2 ms, 35.8 ms, 22.0 ms, 21.6 ms
+  finality       16.7 ms
+  optimistic     16.5 ms
+  header         14 µs
+  reads          0 µs
+  total          228.2 ms
+
+## Helios (helios-consensus-core, a16z/helios 2af9b41) on the same bytes, median of 15
+fixtures/mainnet-fresh: 1 period update(s), median of 15 runs (ms)
+  bootstrap      0.4
+  period update  2.9
+  finality       2.4
+  optimistic     2.5
+  total          8.2
+fixtures/mainnet-week: 7 period update(s), median of 15 runs (ms)
+  bootstrap      0.4
+  period update  2.9, 2.7, 3.0, 2.7, 2.8, 2.9, 3.0
+  finality       3.0
+  optimistic     3.0
+  total          26.4

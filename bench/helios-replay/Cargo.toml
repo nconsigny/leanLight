@@ -1,0 +1,13 @@
+[package]
+name = "helios-replay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+helios-consensus-core = { git = "https://github.com/a16z/helios", rev = "2af9b41887e069144ee56cd710f3ddca195473f8" }
+helios-ethereum = { git = "https://github.com/a16z/helios", rev = "2af9b41887e069144ee56cd710f3ddca195473f8" }
+ethereum_ssz = "0.9"
+alloy-primitives = "1"
+
+[profile.release]
+debug = false

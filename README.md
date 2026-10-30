@@ -24,7 +24,7 @@ alone: a library, its proofs, its tests and a command-line client.
 | `proofs/` | Theorems about `LeanLight`'s definitions, against readable specifications: the vendored [ssz-specs](https://github.com/ethereum/ssz-specs) (MIT), [EthLib](https://github.com/ethereum/EthLib)'s BLS12-381 (CC0) and [VCVio](https://github.com/Verified-zkEVM/VCVio)'s SHA-2 and Keccak (Apache-2.0), with Mathlib's elliptic-curve group law | Mathlib |
 | `tests/` | consensus-specs' light-client and SSZ vectors, BLS vectors and a differential test against EthLib's readable BLS; recorded mainnet runs replayed offline, honest and forged (`leanlight-client-test`); the offline benchmark (`leanlight-bench`) | `LeanLight` |
 | `Main.lean`, `LeanLightCli/` | `leanlight`, the command-line client (HTTP through `curl`) | `LeanLight` |
-| `bench/` | The comparison with [Helios](https://github.com/a16z/helios) on the same endpoints, and its results | Python 3 |
+| `bench/` | The comparison with [Helios](https://github.com/a16z/helios) on the same endpoints (`compare.py`), Helios's checks replayed offline on the same recorded bytes (`helios-replay`), and their results | Python 3, Rust |
 | `scripts/` | The axiom audit and the kernel replay | |
 
 What the proofs cover, in brief (the statements are in the files):
@@ -186,25 +186,27 @@ of the JSON.
 
 **What verifying costs, offline.** `tests/` replays two recorded mainnet runs (`leanlight
 record`, in `tests/fixtures/`) with no network, so only the light client's own work is timed
-(`lake exe leanlight-bench`; median of 15 runs, on a shared 32-core machine;
-`bench/results/offline-2026-10-29b/`):
+(`lake exe leanlight-bench`; median of 15 runs, on a shared 32-core machine under load;
+`bench/results/offline-2026-10-30/`). Helios's consensus checks (`helios-consensus-core` at
+`a16z/helios` `2af9b41`) replay the same bytes in `bench/helios-replay` (`cargo run --release --
+15 ../../tests/fixtures/mainnet-fresh ../../tests/fixtures/mainnet-week`):
 
-| Step | Time (1, 4 or 32 cores alike) | When every key was validated, 1 core |
-|---|---|---|
-| Bootstrap (the checkpoint's root and committee branch) | 2.0 ms | 283 ms |
-| A period update (a signature and the next committee's root) | 20–22 ms | 222–327 ms |
-| A finality or optimistic update (one signature) | 16–18 ms | 20–35 ms |
-| Binding the anchored block's header | 12–17 µs | 13–34 µs |
-| 13 reads (balances, nonces, storage, code), proofs checked | 0.7–0.8 ms | 0.8 ms |
-| **A sync from a fresh checkpoint**, then the 13 reads | **59 ms** | 0.59 s |
-| **A sync from a checkpoint 7 periods old** | **0.18–0.19 s** | 2.05 s |
+| Step | leanLight, 1 core | Helios | leanLight on 2026-10-29, keys validated |
+|---|---|---|---|
+| Bootstrap (the checkpoint's root and committee branch) | 2.3–2.6 ms | 0.4 ms | 283 ms |
+| A period update (a signature and the next committee's root) | 21–22 ms | 2.7–3.0 ms | 222–327 ms |
+| A finality or optimistic update (one signature) | 16–17 ms | 2.4–3.0 ms | 20–35 ms |
+| Binding the anchored block's header | 15 µs | | 13–34 µs |
+| 13 reads (balances, nonces, storage, code), proofs checked | 0.8 ms | | 0.8 ms |
+| **A sync from a fresh checkpoint** (leanLight: then the 13 reads) | **59 ms** | **8.2 ms** | 0.59 s |
+| **A sync from a checkpoint 7 periods old** | **0.18 s** | **26 ms** | 2.05 s |
 
-A signature check is the cost: hash-to-G2 (about 6 ms), the signature's decoding and subgroup
-check (about 3 ms) and the pairing (about 8 ms), in Lean over GMP; a native BLS library takes
-2–3 ms. Committee keys used to be: every committee's 512 keys went through KeyValidate; now none
-do, as in the consensus specs and Helios, and a signature decodes only
-the committee's aggregate key and the absent keys (`Signers.lean`). Proofs and headers are
-cheap.
+More cores change nothing now. A signature check is the cost, about 7 times Helios's: hash-to-G2
+(about 7 ms), the pairing (about 9 ms), the signature's decoding and ψ subgroup check (0.5 ms),
+in Lean over GMP, where Helios calls a native BLS library. Committee keys used to be: every
+committee's 512 keys went through KeyValidate; now none do, as in the consensus specs and
+Helios, and a signature decodes only the committee's aggregate key and the absent keys
+(`Signers.lean`). Proofs and headers are cheap.
 
 **Against Helios, on the same endpoints.** `bench/compare.py` starts Helios (`a16z/helios`
 `2af9b41`) and `leanlight` from the same checkpoint on the same consensus and execution
