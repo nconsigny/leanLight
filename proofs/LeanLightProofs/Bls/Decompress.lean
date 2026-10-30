@@ -1,4 +1,4 @@
-import LeanLightProofs.Bls.Scott
+import LeanLightProofs.Bls.ScottComplete
 import LeanLight.Bls.Compress
 
 /-!
@@ -169,7 +169,8 @@ theorem sigValidate?_some {b : ByteArray} {q : G2A} (h : sigValidate? b = some q
     split at h
     · rename_i hs
       cases h
-      exact ⟨rfl, hr, hn, hne, (G2A.inSubgroup_iff hr hn).mp hs⟩
+      exact ⟨rfl, hr, hn, hne,
+        (G2A.inSubgroup_iff hr hn).mp ((G2A.inSubgroupPsi_eq hr hn).symm.trans hs)⟩
     · cases h
 
 /-- The identity's canonical 48-byte encoding fails KeyValidate. -/
@@ -317,19 +318,6 @@ theorem g1Decompress?_inj {b b' : ByteArray} {p : G1A} (h : g1Decompress? b = so
     exact UInt8.toNat_inj.mp this
 
 
-
-/-- No point of `E'` has `y = 0`: `x³ = −4(1 + u)` would make the norm `32` a cube, and so 2. -/
-theorem E2_y_ne_zero {x y : GFp2} (h : y ^ 2 = x ^ 3 + ⟨4, 4⟩) : y ≠ 0 := by
-  rintro rfl
-  have hx : x ^ 3 = -⟨4, 4⟩ := by linear_combination -h
-  have hn : (QuadraticAlgebra.norm x) ^ 3 = 32 := by
-    rw [← map_pow, hx, QuadraticAlgebra.norm_def]; norm_num
-  apply two_not_cube ((QuadraticAlgebra.norm x) ^ 2 * 8⁻¹)
-  have h8 : (8 : GFp) ≠ 0 := by
-    rw [show (8 : GFp) = ((8 : ℕ) : GFp) by norm_num, Ne, cast_eq_zero (by decide)]; decide
-  rw [mul_pow, ← pow_mul, show 2 * 3 = 3 * 2 by rfl, pow_mul, hn, inv_pow]
-  field_simp
-  norm_num
 
 /-- `Fp2.large` of the negation flips, away from zero. -/
 theorem Fp2.large_neg {y : Fp2} (hy : y.Reduced) (h0 : y ≠ Fp2.zero) : y.neg.large = !y.large := by

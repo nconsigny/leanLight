@@ -1,4 +1,5 @@
 import LeanLightProofs.Bls.Fav
+import LeanLightProofs.Bls.PointCount
 import LeanLightProofs.Bls.ValueEq
 import LeanLight.Bls.HashToG2
 
@@ -7,8 +8,9 @@ import LeanLight.Bls.HashToG2
 
 `LeanLight.Bls.H2C.hashToG2?` returns, on any message and DST, a reduced point of the twist
 `E': y² = x³ + 4(1 + u)` (`hashOnCurve`, which discharges `HashOnCurve`, a hypothesis of
-`fastAggregateVerify_iff`). That the point is in G2 (`HashInG2`, `[h_eff]` landing in G2) is not
-proved here: it stays H_vec's, a hypothesis of `fastAggregateVerify_iff_pairing`. The proof is
+`fastAggregateVerify_iff`), and that point is in G2 (`hashInG2`, which discharges `HashInG2`:
+`[h_eff]` maps every point of `E'(𝔽_{p²})` into G2, `hEff_smul_mem_G2`, from the group's order
+`#E'(𝔽_{p²}) = r·h₂`, `LeanLightProofs.Bls.PointCount`). The proof of `hashOnCurve` is
 structural: no SHA-256 output, square root or point is computed, so the kernel never evaluates
 them on symbolic arguments.
 
@@ -486,6 +488,27 @@ theorem hashOnCurve : HashOnCurve := by
       rw [hh] at hs
       exact ⟨hs.1, hs.2.1⟩
 
+/-- **`HashInG2` holds**: what `hash_to_G2` returns, on any message and DST, is in G2,
+`[r]H = O`. It is `[h_eff]` of a point of `E'` (`hashSum_spec`), and `[r][h_eff]` kills every
+point of `E'(𝔽_{p²})` (`hEff_smul_mem_G2`: `r·h_eff = 3(x² − 1)·#E'(𝔽_{p²})`, the group's order
+`card_E2` from Hasse's bound and two points of prime order). -/
+theorem hashInG2 : HashInG2 := by
+  intro msg dst h hh
+  rw [hashToG2?_eq] at hh
+  cases h0 : H2C.sswu? (H2C.hashToField msg dst).1 with
+  | none => rw [h0, Option.elim_none] at hh; cases hh
+  | some q0 =>
+    rw [h0, Option.elim_some] at hh
+    cases h1 : H2C.sswu? (H2C.hashToField msg dst).2 with
+    | none => rw [h1, Option.elim_none] at hh; cases hh
+    | some q1 =>
+      rw [h1, Option.elim_some] at hh
+      obtain ⟨hr, hn, ha⟩ := hashSum_spec (sswu?_some h0) (sswu?_some h1)
+      have hs := G2J.toAffine?_spec hr hn
+      rw [hh] at hs
+      rw [hs.2.2, ha]
+      exact hEff_smul_mem_G2 _
+
 section Pairing
 
 open WeierstrassCurve.Jacobian
@@ -495,14 +518,13 @@ variable {GT : Type} [CommGroup GT]
   (he1 : ∀ a a' b, R • a = 0 → R • a' = 0 → R • b = 0 → e (a + a') b = e a b * e a' b)
 
 include he1 in
-/-- **FastAggregateVerify**, `fastAggregateVerify_iff` with `HashOnCurve` discharged
-(`hashOnCurve`): over keys KeyValidate accepted (points of G1), given only H_vec's pairing on
-G1 × G2 (`PairingCheckIs e`, for an `e` additive in its first argument on G1 × G2) and H_vec's
-`HashInG2`, true exactly when the keys' sum `A` is not the identity, the signature's bytes pass
+/-- **FastAggregateVerify**, `fastAggregateVerify_iff` with `HashOnCurve` and `HashInG2`
+discharged (`hashOnCurve`, `hashInG2`): over keys KeyValidate accepted (points of G1), given only
+H_vec's pairing on G1 × G2 (`PairingCheckIs e`, for an `e` additive in its first argument on
+G1 × G2), true exactly when the keys' sum `A` is not the identity, the signature's bytes pass
 its checks as a point `σ`, `hash_to_G2(msg)` under Ethereum's DST is a point `H`, and
 `e(g₁, σ) = e(A, H)`. -/
-theorem fastAggregateVerify_iff_pairing (hcheck : PairingCheckIs e) (hg2 : HashInG2)
-    (pks : Array G1A)
+theorem fastAggregateVerify_iff_pairing (hcheck : PairingCheckIs e) (pks : Array G1A)
     (hpks : ∀ p ∈ pks.toList, p.Reduced ∧ E1.Nonsingular p.toJ ∧ R • Point.toAffine E1 p.toJ = 0)
     (msg sig : ByteArray) :
     fastAggregateVerify pks msg sig = true ↔
@@ -510,14 +532,14 @@ theorem fastAggregateVerify_iff_pairing (hcheck : PairingCheckIs e) (hg2 : HashI
       ∃ σ h, sigValidate? sig = some σ ∧ H2C.hashToG2? msg ethDst = some h ∧
         e (Point.toAffine E1 g1Gen.toJ) (aff2 σ.toJ) =
           e (pks.toList.map fun p => Point.toAffine E1 p.toJ).sum (aff2 h.toJ) :=
-  fastAggregateVerify_iff e he1 hcheck hashOnCurve hg2 pks hpks msg sig
+  fastAggregateVerify_iff e he1 hcheck hashOnCurve hashInG2 pks hpks msg sig
 
 include he1 in
 /-- **FastAggregateVerify over the keys' bytes**, `fastAggregateVerifyBytes_iff` with
-`HashOnCurve` discharged: given only `PairingCheckIs e` (on G1 × G2) and `HashInG2`, true
+`HashOnCurve` and `HashInG2` discharged: given only `PairingCheckIs e` (on G1 × G2), true
 exactly when every key passes KeyValidate, as points `pkᵢ` of G1, `Σ pkᵢ ≠ O`, the signature is
 a point `σ`, `hash_to_G2(msg)` a point `H`, and `e(g₁, σ) = e(Σ pkᵢ, H)`. -/
-theorem fastAggregateVerifyBytes_iff_pairing (hcheck : PairingCheckIs e) (hg2 : HashInG2)
+theorem fastAggregateVerifyBytes_iff_pairing (hcheck : PairingCheckIs e)
     (pks : Array ByteArray) (msg sig : ByteArray) :
     fastAggregateVerifyBytes pks msg sig = true ↔
       ∃ keys, pks.mapM keyValidate? = some keys ∧
@@ -525,7 +547,7 @@ theorem fastAggregateVerifyBytes_iff_pairing (hcheck : PairingCheckIs e) (hg2 : 
         ∃ σ h, sigValidate? sig = some σ ∧ H2C.hashToG2? msg ethDst = some h ∧
           e (Point.toAffine E1 g1Gen.toJ) (aff2 σ.toJ) =
             e (keys.toList.map fun p => Point.toAffine E1 p.toJ).sum (aff2 h.toJ) :=
-  fastAggregateVerifyBytes_iff e he1 hcheck hashOnCurve hg2 pks msg sig
+  fastAggregateVerifyBytes_iff e he1 hcheck hashOnCurve hashInG2 pks msg sig
 
 end Pairing
 

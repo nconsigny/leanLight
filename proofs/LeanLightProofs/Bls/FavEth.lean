@@ -1,6 +1,8 @@
 import LeanLightProofs.Bls.Roundtrip
 import LeanLightProofs.Bls.HashEth
 import LeanLightProofs.Bls.FinalExp
+import LeanLightProofs.Bls.FinalExpPow
+import LeanLightProofs.Bls.Miller
 
 /-!
 # BLS12-381: FastAggregateVerify is EthLib's, where `H(m)` is not the identity (25c)
@@ -21,18 +23,23 @@ and its naive `pairingCheck`. Each is related to the runtime's here:
   accumulator (`Eth.pairingAcc`) that skips identity pairs and depends on each point only
   through its affine coordinates.
 
-`fastAggregateVerifyBytes_eq_eth`: given H_vec's equation for every check the runtime makes
-(`MillerLoopsCube`, `FinalExpCube` for each list of pairs), and when EthLib's `hashToG2 msg` is
-not the identity and the signature is not the identity's encoding, the runtime's
-`fastAggregateVerifyBytes` is EthLib's `fastAggregateVerify`, on every key list, message and
-signature.
+* `millerLoopsCube`: on pairs whose G2 point is in G2 (`[r]Q = O`), the runtime's Miller loop and
+  EthLib's accumulator agree after the final exponentiation (`LeanLightProofs.Bls.Miller`); the
+  runtime's final exponentiation is proved (`finalExp_toGF`), so this is LC4b's `FinalExpCube`
+  for each such list of pairs (`millerLoopsCube_iff`), and the runtime's `pairingCheck` is
+  EthLib's on them (`pairingCheck_eq_eth`).
+
+`fastAggregateVerifyBytes_eq_eth`: when EthLib's `hashToG2 msg` is not the identity and the
+signature is not the identity's encoding, the runtime's `fastAggregateVerifyBytes` is EthLib's
+`fastAggregateVerify`, on every key list, message and signature. The signature its checks accept
+is in G2 (`[r]σ = O`) and so is `H(m)` (`hashInG2`), so `pairingCheck_eq_eth` applies.
 
 The identity's encoding as the signature is the one case left, and it is characterized
 (`fastAggregateVerify_eth_identitySig`): EthLib decodes it to the identity and skips its pair,
 so it accepts exactly when the runtime's check of the one pair `(−Σ pkᵢ, H(m))` passes,
 `e(Σ pkᵢ, H(m)) = 1`, where the runtime refuses (`fastAggregateVerifyBytes_identitySig`). They
-agree there exactly when that check fails, which the pairing's non-degeneracy gives when `H(m)`
-lies in G2; neither is proved (`[h_eff]` landing in G2 needs the order of `E'(𝔽_{p²})`).
+agree there exactly when that check fails, which the pairing's non-degeneracy gives, `H(m)`
+being in G2 (`hashInG2`); non-degeneracy is not proved (`LeanLightProofs.Bls.FavEthG2`).
 
 The unfoldings follow `LeanLightProofs.Bls.HashEth`'s rules: values through `value_eq`, EthLib's
 private helpers by `delta_private`, matches rewritten (or their discriminants generalized) before
@@ -643,24 +650,141 @@ theorem Eth.ofG2_congr {q q' : EthLib.Cryptography.Bls.G2} (hi : q.isInfinity = 
     EthLib.Cryptography.Bls.Embedded.ofG2 q = EthLib.Cryptography.Bls.Embedded.ofG2 q' := by
   unfold EthLib.Cryptography.Bls.Embedded.ofG2; rw [hi, ha]
 
-/-- H_vec's equation for every check the runtime makes (`FinalExpCube` for each list of pairs of
-points of the curves): the runtime's `finalExp (millerLoop ps)` stands for the cube of EthLib's
-naive `finalExponentiation` of its `pairingCheck` accumulator over the same pairs. A hypothesis:
-zkcrypto's chain, its cyclotomic squarings and the two Miller loops are checked by vectors, not
-proved (`docs/spec-16-light-client.md`, H_vec). -/
-def MillerLoopsCube : Prop :=
-  ∀ ps : List (G1A × G2A), (∀ pq ∈ ps, pq.1.Reduced ∧ E1.Nonsingular pq.1.toJ ∧ pq.2.Reduced ∧
-    E2.Nonsingular pq.2.toJ) →
-    FinalExpCube (millerLoop ps)
-      (Eth.pairingAcc (ps.map fun pq => (Eth.G1.ofA pq.1, Eth.G2.ofA pq.2)).toArray)
+/-! ## The two Miller loops -/
 
-/-- Given H_vec's equation, the runtime's pairing check is EthLib's on the same points. -/
-theorem pairingCheck_eq_eth (hcube : MillerLoopsCube) (ps : List (G1A × G2A))
-    (hps : ∀ pq ∈ ps, pq.1.Reduced ∧ E1.Nonsingular pq.1.toJ ∧ pq.2.Reduced ∧
-      E2.Nonsingular pq.2.toJ) :
+theorem Eth.fp2_mul_one_inverse (a : EthLib.Cryptography.Bls.Fp2) :
+    a * (EthLib.Cryptography.Bls.Fp2.one.inverse * EthLib.Cryptography.Bls.Fp2.one.inverse) = a ∧
+      a * (EthLib.Cryptography.Bls.Fp2.one.inverse * EthLib.Cryptography.Bls.Fp2.one.inverse *
+        EthLib.Cryptography.Bls.Fp2.one.inverse) = a := by
+  constructor <;>
+  · rw [← Fp2.ofEth_inj, ← Fp2.toGF_inj (Fp2.reduced_ofEth _) (Fp2.reduced_ofEth _)]
+    simp only [Fp2.toGF_ofEth_mul, Fp2.toGF_ofEth_inverse, toGF_ofEth_one, inv_one, mul_one]
+
+theorem Eth.fp_one_inverse_val :
+    ((EthLib.Cryptography.Bls.Fp.one.inverse.val : ℕ) : GFp) = 1 := by
+  rw [EthLib.Cryptography.Bls.Fp.inverse, cast_val_powNat]
+  simp [EthLib.Cryptography.Bls.Fp.one]
+
+/-- EthLib's affine point of `G1.ofA p` is `p`'s coordinates, read in `𝔽_p`. -/
+theorem Eth.G1.toAffine_ofA (p : G1A) :
+    (((G1.ofA p).toAffine.1.val : ℕ) : GFp) = p.x ∧
+      (((G1.ofA p).toAffine.2.val : ℕ) : GFp) = p.y := by
+  unfold EthLib.Cryptography.Bls.G1.toAffine
+  rw [ite_eq_right (by
+    rw [show (G1.ofA p).z.isZero = false from rfl]; exact Bool.false_ne_true)]
+  refine ⟨?_, ?_⟩ <;>
+    simp only [G1.ofA, cast_val_mul, cast_val_ofNat, Eth.fp_one_inverse_val, mul_one]
+
+/-- EthLib's affine point of `G2.ofA q` is `q`'s coordinates. -/
+theorem Eth.G2.toAffine_ofA_eq (q : G2A) : (G2.ofA q).toAffine = (q.x.toEth, q.y.toEth) := by
+  unfold G2.ofA EthLib.Cryptography.Bls.G2.toAffine
+  rw [ite_eq_right (by rw [show EthLib.Cryptography.Bls.Fp2.one.isZero = false from rfl]; exact
+    Bool.false_ne_true)]
+  simp only [(fp2_mul_one_inverse _).1, (fp2_mul_one_inverse _).2]
+
+/-- EthLib's embedding of a runtime affine point `p` of `E` into `E(𝔽_{p¹²})` stands for `p`. -/
+theorem Eth.embeds_ofG1 (p : G1A) :
+    Embeds (EthLib.Cryptography.Bls.Embedded.ofG1 (G1.ofA p)) p := by
+  obtain ⟨hx, hy⟩ := Eth.G1.toAffine_ofA p
+  unfold EthLib.Cryptography.Bls.Embedded.ofG1
+  rw [Eth.G1.isInfinity_ofA, ite_eq_right Bool.false_ne_true]
+  constructor
+  · show (ofEth12 ⟨EthLib.Cryptography.Bls.Fp6.ofFp2 (EthLib.Cryptography.Bls.Fp2.ofFp
+      (G1.ofA p).toAffine.1), EthLib.Cryptography.Bls.Fp6.zero⟩).toGF = _
+    rw [toGF_ofEth12_ofFp2, toGF_ofEth_ofFp, hx]
+  · show (ofEth12 ⟨EthLib.Cryptography.Bls.Fp6.ofFp2 (EthLib.Cryptography.Bls.Fp2.ofFp
+      (G1.ofA p).toAffine.2), EthLib.Cryptography.Bls.Fp6.zero⟩).toGF = _
+    rw [toGF_ofEth12_ofFp2, toGF_ofEth_ofFp, hy]
+
+/-- EthLib's untwist of a reduced runtime affine point `q` of `E'` into `E(𝔽_{p¹²})` is
+`(x·w⁻², y·w⁻³)`. -/
+theorem Eth.untwists_ofG2 {q : G2A} (hq : q.Reduced) :
+    Untwists (EthLib.Cryptography.Bls.Embedded.ofG2 (G2.ofA q)) q.x.toGF q.y.toGF := by
+  unfold EthLib.Cryptography.Bls.Embedded.ofG2
+  rw [Eth.G2.isInfinity_ofA, ite_eq_right Bool.false_ne_true, Eth.G2.toAffine_ofA_eq]
+  refine ⟨rfl, ?_, ?_⟩
+  · show (ofEth12 (⟨EthLib.Cryptography.Bls.Fp6.ofFp2 q.x.toEth, EthLib.Cryptography.Bls.Fp6.zero⟩ *
+      EthLib.Cryptography.Bls.Embedded.wInv2)).toGF = _
+    rw [toGF_ofEth12_mul, toGF_ofEth12_ofFp2, toGF_wInv2, Fp2.ofEth_toEth hq.1]
+  · show (ofEth12 (⟨EthLib.Cryptography.Bls.Fp6.ofFp2 q.y.toEth, EthLib.Cryptography.Bls.Fp6.zero⟩ *
+      EthLib.Cryptography.Bls.Embedded.wInv3)).toGF = _
+    rw [toGF_ofEth12_mul, toGF_ofEth12_ofFp2, toGF_wInv3, Fp2.ofEth_toEth hq.2]
+
+/-- EthLib's accumulator over runtime affine points is the product of its conjugated Miller loops
+(no point is the identity). -/
+theorem Eth.pairingAcc_toGF (ps : List (G1A × G2A)) :
+    (ofEth12 (pairingAcc (ps.map fun pq => (G1.ofA pq.1, G2.ofA pq.2)).toArray)).toGF =
+      (ps.map fun pq => star (ofEth12 (EthLib.Cryptography.Bls.millerLoop
+        EthLib.Cryptography.Bls.blsX (EthLib.Cryptography.Bls.Embedded.ofG2 (G2.ofA pq.2))
+        (EthLib.Cryptography.Bls.Embedded.ofG1 (G1.ofA pq.1)))).toGF).prod := by
+  unfold pairingAcc
+  simp only [List.foldl_toArray', List.foldl_map, G1.isInfinity_ofA, G2.isInfinity_ofA,
+    Bool.or_false, Bool.false_eq_true, ↓reduceIte]
+  suffices h : ∀ (l : List (G1A × G2A)) (a : EthLib.Cryptography.Bls.Fp12),
+      (ofEth12 (l.foldl (fun acc pq => acc * (EthLib.Cryptography.Bls.millerLoop
+        EthLib.Cryptography.Bls.blsX (EthLib.Cryptography.Bls.Embedded.ofG2 (G2.ofA pq.2))
+        (EthLib.Cryptography.Bls.Embedded.ofG1 (G1.ofA pq.1))).conjugate) a)).toGF =
+      (ofEth12 a).toGF * (l.map fun pq => star (ofEth12 (EthLib.Cryptography.Bls.millerLoop
+        EthLib.Cryptography.Bls.blsX (EthLib.Cryptography.Bls.Embedded.ofG2 (G2.ofA pq.2))
+        (EthLib.Cryptography.Bls.Embedded.ofG1 (G1.ofA pq.1)))).toGF).prod by
+    rw [h, toGF_ofEth12_one, one_mul]
+  intro l
+  induction l with
+  | nil => intro a; simp
+  | cons pq l ih =>
+    intro a
+    rw [List.foldl_cons, ih, toGF_ofEth12_mul, toGF_ofEth12_conjugate, List.map_cons,
+      List.prod_cons, mul_assoc]
+
+/-- **The runtime's Miller loop and EthLib's agree after the final exponentiation, on G2**: for
+every list of pairs `(P, Q)`, `P` any runtime `G1A` (only its coordinates mod `p` are used) and
+`Q` a reduced point of `E'` with `[r]Q = O`, the runtime's Miller value `millerLoop ps` and
+EthLib's naive `pairingCheck` accumulator over the same pairs, `P` and `Q` as EthLib points
+`(x, y, 1)`, give the same value raised to `(p¹²−1)/r` in `𝔽_{p¹²}`. Once
+H_vec's hypothesis, now a theorem (`millerLoopsCube`): the two loops' lines differ by factors
+`s·w³`, `s` in `𝔽_{p²}`, which that power kills, as long as neither loop meets an exceptional
+case, which `[r]Q = O` rules out (`LeanLightProofs.Bls.Miller`). Off G2 the statement fails: for `Q`
+of order 13 EthLib's addition meets `T = −Q` and computes a point off the curve, where the
+runtime's reaches the identity. The name is LC4b's, when the equation also carried the runtime's
+final exponentiation (`FinalExpCube` for each list); that part is proved (`finalExp_toGF`), and
+this statement is `FinalExpCube` for each list of such pairs (`millerLoopsCube_iff`). -/
+def MillerLoopsCube : Prop :=
+  ∀ ps : List (G1A × G2A), (∀ pq ∈ ps, pq.2.Reduced ∧ E2.Nonsingular pq.2.toJ ∧
+    R • aff2 pq.2.toJ = 0) →
+    (millerLoop ps).toGF ^ finalExpExp =
+      (ofEth12 (Eth.pairingAcc
+        (ps.map fun pq => (Eth.G1.ofA pq.1, Eth.G2.ofA pq.2)).toArray)).toGF ^ finalExpExp
+
+/-- **H_vec's Miller-loop equation, proved**: `MillerLoopsCube` holds (`millerLoop_pow_eq`,
+`Eth.pairingAcc_toGF`). -/
+theorem millerLoopsCube : MillerLoopsCube := by
+  intro ps hps
+  rw [Eth.pairingAcc_toGF]
+  exact millerLoop_pow_eq ps (fun pq => (EthLib.Cryptography.Bls.Embedded.ofG1 (Eth.G1.ofA pq.1),
+      EthLib.Cryptography.Bls.Embedded.ofG2 (Eth.G2.ofA pq.2)))
+    fun pq hpq => ⟨(hps pq hpq).1, (hps pq hpq).2.1, (hps pq hpq).2.2, Eth.embeds_ofG1 pq.1,
+      Eth.untwists_ofG2 (hps pq hpq).1⟩
+
+/-- `MillerLoopsCube` is LC4b's hypothesis, `FinalExpCube` for each list of pairs whose G2 points
+are reduced points of `E'` with `[r]Q = O`, now that the runtime's final exponentiation is proved
+(`finalExpCube_iff`, with the Miller loop's value reduced, `reduced_millerLoop`). -/
+theorem millerLoopsCube_iff : MillerLoopsCube ↔
+    ∀ ps : List (G1A × G2A), (∀ pq ∈ ps, pq.2.Reduced ∧ E2.Nonsingular pq.2.toJ ∧
+      R • aff2 pq.2.toJ = 0) →
+      FinalExpCube (millerLoop ps)
+        (Eth.pairingAcc (ps.map fun pq => (Eth.G1.ofA pq.1, Eth.G2.ofA pq.2)).toArray) :=
+  forall_congr' fun ps => imp_congr_right fun _ =>
+    (finalExpCube_iff (reduced_millerLoop ps) _).symm
+
+/-- **The runtime's pairing check is EthLib's** on the same points, as EthLib points `(x, y, 1)`,
+for every list of pairs `(P, Q)`, `P` any runtime `G1A` and `Q` a reduced point of `E'` with
+`[r]Q = O` (`millerLoopsCube`). -/
+theorem pairingCheck_eq_eth (ps : List (G1A × G2A))
+    (hps : ∀ pq ∈ ps, pq.2.Reduced ∧ E2.Nonsingular pq.2.toJ ∧ R • aff2 pq.2.toJ = 0) :
     pairingCheck ps = EthLib.Cryptography.Bls.pairingCheck
       (ps.map fun pq => (Eth.G1.ofA pq.1, Eth.G2.ofA pq.2)).toArray := by
-  rw [Eth.pairingCheck_eq, Bool.eq_iff_iff, ← finalExp_isOne_iff (hcube ps hps)]
+  rw [Eth.pairingCheck_eq, Bool.eq_iff_iff,
+    ← finalExp_isOne_iff ((millerLoopsCube_iff.mp millerLoopsCube) ps hps)]
   rfl
 
 /-! ## EthLib's loop over the keys -/
@@ -751,14 +875,6 @@ theorem Eth.G1.neg_ofA {a : G1A} (ha : a.Reduced) :
   congr 1
   conv_rhs => rw [← hy, fneg_val, fp_ofNat_val]
 
-theorem Eth.fp2_mul_one_inverse (a : EthLib.Cryptography.Bls.Fp2) :
-    a * (EthLib.Cryptography.Bls.Fp2.one.inverse * EthLib.Cryptography.Bls.Fp2.one.inverse) = a ∧
-      a * (EthLib.Cryptography.Bls.Fp2.one.inverse * EthLib.Cryptography.Bls.Fp2.one.inverse *
-        EthLib.Cryptography.Bls.Fp2.one.inverse) = a := by
-  constructor <;>
-  · rw [← Fp2.ofEth_inj, ← Fp2.toGF_inj (Fp2.reduced_ofEth _) (Fp2.reduced_ofEth _)]
-    simp only [Fp2.toGF_ofEth_mul, Fp2.toGF_ofEth_inverse, toGF_ofEth_one, inv_one, mul_one]
-
 /-- An EthLib point `(x, y, 1)` built from another's affine coordinates has the same affine
 coordinates and is not at infinity. -/
 theorem Eth.G2.toAffine_ofA (q : EthLib.Cryptography.Bls.G2) :
@@ -797,14 +913,13 @@ theorem idBind {α β : Type} (x : α) (f : α → Id β) : (x >>= f : Id β) = 
 
 value_eq ethFav_value : EthLib.Cryptography.Bls.Signatures.fastAggregateVerify
 
-/-- **FastAggregateVerify is EthLib's**, given H_vec's equation for the checks it makes
-(`MillerLoopsCube`), when EthLib's `hash_to_G2(msg)` under Ethereum's DST is not the identity and
-the signature is not the identity's canonical encoding: the runtime's `fastAggregateVerifyBytes`
+/-- **FastAggregateVerify is EthLib's**, when EthLib's `hash_to_G2(msg)` under Ethereum's DST is
+not the identity and the signature is not the identity's canonical encoding: the runtime's
+`fastAggregateVerifyBytes`
 (IRTF BLS's FastAggregateVerify over the keys' bytes) is EthLib's `fastAggregateVerify`, on every
 key list, message and signature. (Both refuse an empty key list. For the identity's encoding see
 `fastAggregateVerify_eth_identitySig`.) -/
-theorem fastAggregateVerifyBytes_eq_eth (hcube : MillerLoopsCube) (pks : Array ByteArray)
-    (msg sig : ByteArray)
+theorem fastAggregateVerifyBytes_eq_eth (pks : Array ByteArray) (msg sig : ByteArray)
     (hH : ∀ q, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg
       EthLib.Cryptography.Bls.Signatures.DST = .ok q → q.isInfinity = false)
     (hsig : sig ≠ EthLib.Cryptography.Bls.G2.infinityBytes) :
@@ -917,7 +1032,7 @@ theorem fastAggregateVerifyBytes_eq_eth (hcube : MillerLoopsCube) (pks : Array B
           rw [Option.elim_some, Option.elim_some,
             ite_eq_right (show ¬(sig.size ≠ 96) from by rw [hsz]; exact fun h => h rfl)]
           dsimp only
-          rw [Eth.G2.inSubgroup_ofA hqr hqn]
+          rw [Eth.G2.inSubgroup_ofA hqr hqn, G2A.inSubgroupPsi_eq hqr hqn]
           cases hs : q.inSubgroup with
           | false => rfl
           | true =>
@@ -934,13 +1049,12 @@ theorem fastAggregateVerifyBytes_eq_eth (hcube : MillerLoopsCube) (pks : Array B
                 rw [hrq, toOption_ok, Option.bind_some, Eth.g2Affine?, hqi,
                   ite_eq_right Bool.false_ne_true]
               obtain ⟨hhr, hhn⟩ := hashOnCurve _ _ _ hh
-              obtain ⟨hnr, hnn, -⟩ := G1A.neg_spec har han
-              rw [pairingCheck_eq_eth hcube _ (by
+              rw [pairingCheck_eq_eth _ (by
                 intro pq hpq
                 simp only [List.mem_cons, List.mem_nil_iff, or_false] at hpq
                 rcases hpq with rfl | rfl
-                · exact ⟨g1Gen_reduced, g1Gen_nonsingular, hqr, hqn⟩
-                · exact ⟨hnr, hnn, hhr, hhn⟩)]
+                · exact ⟨hqr, hqn, (G2A.inSubgroup_iff hqr hqn).mp hs⟩
+                · exact ⟨hhr, hhn, hashInG2 _ _ _ hh⟩)]
               simp only [List.map_cons, List.map_nil]
               rw [Eth.pairingCheck_eq, Eth.pairingCheck_eq,
                 Eth.pairingAcc_congr2 _ _ (q' := qq) (by rw [Eth.G2.isInfinity_ofA, hqi])
@@ -976,13 +1090,12 @@ theorem fastAggregateVerifyBytes_identitySig (pks : Array ByteArray) (msg : Byte
 
 /-- **The identity's encoding as the signature.** EthLib decodes it to the identity, whose
 subgroup check passes and whose pair its pairing check skips: where `hash_to_G2(msg)` is not
-the identity, and given H_vec's equation, EthLib's `fastAggregateVerify` is true exactly when
-every key passes KeyValidate, their sum `A` is not the identity, and the runtime's check of the
-one pair `(−A, H(m))` passes, `e(A, H(m)) = 1`. The runtime refuses this signature
-(`fastAggregateVerifyBytes_identitySig`), so the two agree here exactly when that check fails:
-non-degeneracy, given `H(m)` in G2, neither proved here. -/
-theorem fastAggregateVerify_eth_identitySig (hcube : MillerLoopsCube) (pks : Array ByteArray)
-    (msg : ByteArray)
+the identity, EthLib's `fastAggregateVerify` is true exactly when every key passes KeyValidate,
+their sum `A` is not the identity, and the runtime's check of the one pair `(−A, H(m))` passes,
+`e(A, H(m)) = 1`. The runtime refuses this signature (`fastAggregateVerifyBytes_identitySig`), so
+the two agree here exactly when that check fails: non-degeneracy, `H(m)` being in G2
+(`hashInG2`), not proved here (`fastAggregateVerifyBytes_eq_eth_of_nonDegenerate` assumes it). -/
+theorem fastAggregateVerify_eth_identitySig (pks : Array ByteArray) (msg : ByteArray)
     (hH : ∀ q, EthLib.Cryptography.Bls.HashToCurve.hashToG2 msg
       EthLib.Cryptography.Bls.Signatures.DST = .ok q → q.isInfinity = false) :
     EthLib.Cryptography.Bls.Signatures.fastAggregateVerify pks msg
@@ -1108,12 +1221,11 @@ theorem fastAggregateVerify_eth_identitySig (hcube : MillerLoopsCube) (pks : Arr
             rw [hrq, toOption_ok, Option.bind_some, Eth.g2Affine?, hqi,
               ite_eq_right Bool.false_ne_true]
           obtain ⟨hhr, hhn⟩ := hashOnCurve _ _ _ hh
-          obtain ⟨hnr, hnn, -⟩ := G1A.neg_spec har han
-          rw [pairingCheck_eq_eth hcube _ (by
+          rw [pairingCheck_eq_eth _ (by
             intro pq hpq
             simp only [List.mem_cons, List.mem_nil_iff, or_false] at hpq
             subst hpq
-            exact ⟨hnr, hnn, hhr, hhn⟩)]
+            exact ⟨hhr, hhn, hashInG2 _ _ _ hh⟩)]
           simp only [List.map_cons, List.map_nil]
           rw [Eth.pairingCheck_eq, Eth.pairingCheck_eq, Eth.pairingAcc_skip _ hPi,
             Eth.pairingAcc_congr1 _ (q' := qq) (by rw [Eth.G2.isInfinity_ofA, hqi])

@@ -23,9 +23,9 @@ The tower's upper floors as fields, after reuse rule C4f:
   interpolated product and Chung–Hasan's squaring, the products by `v` and by sparse Miller-loop
   lines (`mulBy1`, `mulBy01`, `mulBy014`), the inverses through the norms, the conjugate of
   `Fp12` (`star`), and the tests `eq`, `isZero`, `isOne` are the fields' (`Fp6.toGF_mul`,
-  `Fp12.toGF_inv`, `Fp12.isOne_iff` and the like). The Frobenius and the cyclotomic squaring of
-  the final exponentiation are not covered: what the final exponentiation computes is H_vec's
-  (`docs/spec-16-light-client.md`).
+  `Fp12.toGF_inv`, `Fp12.isOne_iff` and the like). The Frobenius, the conjugate as a power and the
+  cyclotomic squaring of the final exponentiation are in `LeanLightProofs.Bls.Frobenius`, the
+  final exponentiation itself in `LeanLightProofs.Bls.FinalExpPow`.
 * **EthLib's readable tower** (`ofEth6`, `ofEth12`, injective): its operations are the fields'
   too (`toGF_ofEth6_mul`, `toGF_ofEth12_mul`, `toGF_ofEth12_powNat`: its square and multiply is
   the power, `isOne_ofEth12_iff`), so the runtime's on EthLib's values give EthLib's

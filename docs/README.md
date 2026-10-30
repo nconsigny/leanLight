@@ -21,6 +21,16 @@ The copies are as the wallet had them on the date above. Since then, in leanLigh
   signature theorems (`LeanLightProofs/Signers.lean`: `signersKey?_eq`,
   `verifySignature_consistent`, `verifySignature_iff_pairing`).
 
+- **BLS hypotheses proved** (2026-10-30, ported from the wallet's `61b1cc4b..2f6ae606`): Hasse's
+  bound and the orders of E(Fp) and E'(Fp2), Scott's tests complete on G1 and G2 (the signature's
+  check runs ψ, no `[r]Q` fallback), `hashInG2`, the final exponentiation as the cube, and the Miller
+  loop against EthLib's (`MillerLoopsCube`, restated over Q with `[r]Q = O`: over every reduced
+  point it is false). So 25c's hypotheses `HashInG2`, `FinalExpCube` and `MillerLoopsCube` are
+  theorems; `PairingCheckIs` and `PairingNonDegenerate` remain. Six statements were restated there
+  (`MillerLoopsCube`, `millerLoopsCube_iff`, `pairingCheck_eq_eth`, `fastAggregateVerifyBytes_eq_eth`,
+  `fastAggregateVerify_eth_identitySig`, `fastAggregateVerifyBytes_eq_eth_of_nonDegenerate`),
+  each giving the old one or dropping a hypothesis; a second reader is still owed for them.
+
 ## Reading the ids in the comments
 
 | Id | Meaning | Where |

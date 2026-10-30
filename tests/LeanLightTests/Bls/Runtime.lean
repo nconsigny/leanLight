@@ -199,12 +199,17 @@ def timings (z reps : Nat) : IO (Tally × Nat × Nat) := do
     match sigValidate? (if i = 1000 then root else sig) with | some q => q.x.c0 % 2 | none => 0
   let hq := (H2C.hashToG2? root ethDst).getD g2Gen
   let sq := (sigValidate? sig).getD g2Gen
+  let psiNs ← timeBest 1 reps fun i =>
+    if (if i = 1000 then g2Gen else sq).inSubgroupPsi then 1 else 0
+  let rqNs ← timeBest 1 reps fun i =>
+    if (if i = 1000 then g2Gen else sq).inSubgroup then 1 else 0
   let aggA := (aggregate? keys).getD g1Gen
   let pairing ← timeBest 1 reps fun i =>
     if pairingCheck [(g1Gen, sq), ((if i = 1000 then g1Gen else aggA).neg, hq)] then 1 else 0
   let cof ← timeBest 1 reps fun i => (H2C.clearCofactor ⟨hq.x, hq.y, ⟨i + 1, 0⟩⟩).x.c0 % 2
-  IO.println s!"TIME update (512 keys aggregated, hash_to_G2, signature decompressed and [r]Q, 2-pair pairing check): {ms update}"
+  IO.println s!"TIME update (512 keys aggregated, hash_to_G2, signature decompressed and its subgroup check, 2-pair pairing check): {ms update}"
   IO.println s!"TIME   of which: aggregate 512 keys {ms agg}, hash_to_G2 {ms h2g} (clear_cofactor [h_eff]P {ms cof}), signature checks {ms sigCheck}, pairing check {ms pairing}"
+  IO.println s!"TIME the signature's subgroup check: psi(Q) = [x]Q {ms psiNs} (what runs), [r]Q = O {ms rqNs}"
   IO.println s!"TIME committee: 512 x (decompress + KeyValidate with [r]P): {ms committeeNs}"
   return (t, update, committeeNs)
 

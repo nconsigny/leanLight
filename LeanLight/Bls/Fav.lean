@@ -45,9 +45,9 @@ participant. 25c (LC4b) proves `fastAggregateVerify` true exactly when the key s
 identity, the signature decodes to `σ`, `H(m) = hash_to_G2(m)` and `e(g₁, σ) = e(Σ pk, H(m))`,
 for any `e` additive in its first argument, given H_vec's pairing hypothesis; and (LC4b's rest)
 `fastAggregateVerifyBytes` equal to EthLib's `fastAggregateVerify` on every input where `H(m)` is
-not the identity and the signature is not the identity's encoding, given H_vec's final
-exponentiation equation (`fastAggregateVerifyBytes_eq_eth`), the identity's encoding
-characterized as above (`fastAggregateVerify_eth_identitySig`).
+not the identity and the signature is not the identity's encoding, with no hypothesis
+(`fastAggregateVerifyBytes_eq_eth`), the identity's encoding characterized as above
+(`fastAggregateVerify_eth_identitySig`).
 -/
 
 namespace LeanLight.Lc.Bls

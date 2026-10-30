@@ -267,7 +267,7 @@ theorem sigValidate?_compress {q : G2A} (hq : q.Reduced) (hn : E2.Nonsingular q.
     (hr : R • Point.toAffine E2 q.toJ = 0) : sigValidate? q.compress = some q := by
   unfold sigValidate?
   rw [G2J.compress_match_1, g2Decompress?_compress hq hn, Option.elim_some,
-    ite_eq_left ((G2A.inSubgroup_iff hq hn).mpr hr)]
+    ite_eq_left ((G2A.inSubgroupPsi_eq hq hn).trans ((G2A.inSubgroup_iff hq hn).mpr hr))]
 
 /-- **The signature's checks are canonical**: they accept for a point only its compression. -/
 theorem sigValidate?_canonical {b : ByteArray} {q : G2A} (h : sigValidate? b = some q) :

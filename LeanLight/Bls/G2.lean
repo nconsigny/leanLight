@@ -8,10 +8,14 @@ Moved from the benchmark's `Bls/Curve.lean` (see `LeanLight.Bls.Fp`), with a mix
 affine (`G2A`, never the identity) or Jacobian (`G2J`, `z = 0` the identity), with the formulas
 of `LeanLight.Bls.G1` over `Fp2`.
 
-**Subgroup membership** in v1 is `[r]Q = O` (`G2A.inSubgroup`). The test by the endomorphism
-`ψ = twist⁻¹ ∘ Frobenius ∘ twist`, `ψ(Q) = [x]Q`, is kept (`G2A.inSubgroupPsi`) only for the
-tests to check against `[r]Q`. `ψ`'s two constants are pinned (`psiX_eq`, `psiY_eq`), and that
-`ψ` acts on G2 as `[x]` is checked on the generator (`psi_acts`), by the kernel.
+**Subgroup membership** is `[r]Q = O` (`G2A.inSubgroup`), as the signature's checks state it.
+What runs is Scott's test (eprint 2021/1130) by the endomorphism
+`ψ = twist⁻¹ ∘ Frobenius ∘ twist`, `ψ(Q) = [x]Q` with `x = −X` the curve's parameter
+(`G2A.inSubgroupPsi`): a double-and-add over `X`'s 64 bits instead of `r`'s 255, about six times
+faster. `LeanLightProofs.Bls.ScottComplete` proves it sound and complete, so that on every reduced
+point of `E'` it accepts exactly what `inSubgroup` accepts (`G2A.inSubgroupPsi_eq`), with no
+fallback. `ψ`'s two constants are pinned (`psiX_eq`, `psiY_eq`), and that `ψ` acts on G2's
+generator as `[x]` is checked (`psi_acts`), by the kernel.
 -/
 
 namespace LeanLight.Lc.Bls
@@ -136,7 +140,7 @@ def g2Gen : G2A :=
    ⟨0x0ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801,
     0x0606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be⟩⟩
 
-/-! ## ψ, for the tests -/
+/-! ## ψ: the subgroup test -/
 
 /-- `ξ^(−(P−1)/3)` (`psiX_eq`). -/
 def psiX : Fp2 :=
@@ -155,7 +159,9 @@ theorem psiY_eq : psiY = (Fp2.pow xi ((P - 1) / 2)).inv := by decide +kernel
 
 theorem psi_acts : (G2J.ofAffine g2Gen).psi.eq (G2J.mulA g2Gen X).neg = true := by decide +kernel
 
-/-- Membership in G2 by the test `ψ(q) = [x]q`, `x` negative; not on v1's path. -/
+/-- Membership in G2 by Scott's test `ψ(q) = [x]q`, `x = −X` negative: `ψ(q) = −[X]q`, as the
+signature's checks run it. Equal to `inSubgroup` on the curve (`LeanLightProofs.Bls.ScottComplete`,
+`G2A.inSubgroupPsi_eq`). -/
 def G2A.inSubgroupPsi (p : G2A) : Bool := (G2J.ofAffine p).psi.eq (G2J.mulA p X).neg
 
 end LeanLight.Lc.Bls

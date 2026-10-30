@@ -15,9 +15,11 @@ result is one loses nothing by the cube:
   `pow_card_sub_one_GFp12`, and `r ∣ p¹² − 1`, `R_dvd`), so `g³ = 1` gives
   `g = g^gcd(3, r) = 1` (`R_coprime_three`); for `f = 0` both sides are false.
 * `finalExp_isOne_iff`: if the runtime's `finalExp m` stands for the cube of EthLib's
-  `finalExponentiation acc` (H_vec's equation, `FinalExpCube`, a hypothesis: what zkcrypto's
-  chain and the two Miller loops compute is checked by vectors, not proved), then the runtime's
-  check `(finalExp m).isOne` is EthLib's `(finalExponentiation acc).isOne`.
+  `finalExponentiation acc` (`FinalExpCube`), then the runtime's check `(finalExp m).isOne` is
+  EthLib's `(finalExponentiation acc).isOne`. `FinalExpCube` was H_vec's hypothesis; the runtime's
+  final exponentiation is now proved (`LeanLightProofs.Bls.FinalExpPow.finalExp_toGF`), so for a
+  reduced `m` it holds exactly when `m` and `acc` agree after the final exponentiation
+  (`finalExpCube_iff`), a statement about the Miller loops alone.
 
 What it rests on: `p` and `r` prime (`LeanLightProofs.Bls.Primes`), `𝔽_{p¹²}` a field of `p¹²`
 elements (`LeanLightProofs.Bls.Tower`).
@@ -73,9 +75,11 @@ theorem reduced_finalExp (f : Fp12) : (finalExp f).Reduced := by
   unfold finalExp
   exact Fp12.reduced_mul' _ _
 
-/-- H_vec's equation for one check: the runtime's `finalExp m` stands for the cube of EthLib's
-`finalExponentiation acc`. A hypothesis: zkcrypto's chain, its cyclotomic squarings and the
-two Miller loops are checked by vectors (`docs/spec-16-light-client.md`, H_vec), not proved. -/
+/-- The equation for one check: the runtime's `finalExp m` stands for the cube of EthLib's
+`finalExponentiation acc`. Once H_vec's hypothesis; zkcrypto's chain is now proved
+(`finalExp_toGF`), and for a reduced `m` this holds exactly when `m^((p¹²−1)/r)` and
+`acc^((p¹²−1)/r)` agree (`finalExpCube_iff`), which the two Miller loops do on G2
+(`millerLoopsCube`, `LeanLightProofs.Bls.FavEth`). -/
 def FinalExpCube (m : Fp12) (acc : EthLib.Cryptography.Bls.Fp12) : Prop :=
   (finalExp m).toGF = (ofEth12 (finalExponentiation acc)).toGF ^ 3
 

@@ -15,7 +15,9 @@ identity flag (`g1Decompress?`, `g2Decompress?`): a public key that is the ident
 KeyValidate (IRTF BLS §2.5), and a signature that is the identity is refused before the
 pairing, where under a key that is not the identity it never verifies. A coordinate must be
 below `P`, and `y` is the root of the curve's equation the sign bit names, so the point is on
-the curve; the subgroup checks are `[r]P = O` and `[r]Q = O` (`keyValidate?`, `sigValidate?`).
+the curve; the subgroup checks are `[r]P = O` and `[r]Q = O` (`keyValidate?`, `sigValidate?`),
+run as Scott's tests (`G1A.inSubgroupFast`, with `[r]P` as its fallback, and
+`G2A.inSubgroupPsi`), each equal to the check it replaces on the curve.
 `isIdentity48` and `isIdentity96` recognize the identity's one canonical encoding, which
 the tests' Ethereum wrappers need.
 -/
@@ -95,10 +97,11 @@ def g2Decompress? (b : ByteArray) : Option G2A :=
   | some y => some ⟨x, if y.large == sign then y else y.neg⟩
 
 /-- The signature's checks of CoreVerify (IRTF BLS §2.7, `signature_subgroup_check`): 96 bytes
-decompressed, not the identity, and `[r]Q = O`. -/
+decompressed, not the identity, and `[r]Q = O`, checked by Scott's test `G2A.inSubgroupPsi`
+(equal to `inSubgroup` on the curve). -/
 def sigValidate? (b : ByteArray) : Option G2A :=
   match g2Decompress? b with
-  | some q => if q.inSubgroup then some q else none
+  | some q => if q.inSubgroupPsi then some q else none
   | none => none
 
 end LeanLight.Lc.Bls

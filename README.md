@@ -31,13 +31,17 @@ What the proofs cover, in brief (the statements are in the files):
 - **BLS12-381**: the runtime's field and curve arithmetic is Mathlib's group law
   (`Bls/Curves.lean`, `Bls/Jacobian.lean`); decompression is sound and canonical; KeyValidate
   accepts exactly the compressions of the points of G1 other than the identity, and equals
-  EthLib's (`Bls/Decompress.lean`, `Bls/Roundtrip.lean`, `Bls/FavEth.lean`); KeyValidate runs
-  Scott's subgroup test, proved sound (`Bls/Scott.lean`); hash-to-G2 equals EthLib's
-  (`Bls/HashEth.lean`); FastAggregateVerify equals EthLib's when the message does not hash to
-  the identity and the signature is not the identity's encoding, given the Miller-loop
-  hypothesis below (`fastAggregateVerifyBytes_eq_eth`). That the pairing is bilinear and
-  non-degenerate, and that the fast final exponentiation computes the cube of the naive one,
-  are named hypotheses checked by the vectors, not proved (`H_vec` in the comments).
+  EthLib's (`Bls/Decompress.lean`, `Bls/Roundtrip.lean`, `Bls/FavEth.lean`); the subgroup
+  checks run Scott's tests, σ on G1 and ψ on G2, proved sound and complete through Hasse's
+  bound and the curves' point counts (`Bls/Scott.lean`, `Bls/ScottComplete.lean`,
+  `Bls/Hasse.lean`, `Bls/PointCount.lean`); hash-to-G2 equals EthLib's and lands in G2
+  (`Bls/HashEth.lean`, `hashInG2`); the runtime's Miller loop is EthLib's line by line and its
+  fast final exponentiation is the cube of the naive one (`Bls/Miller.lean`,
+  `Bls/FinalExpPow.lean`, `Bls/Frobenius.lean`, `Bls/GrangerScott.lean`), so FastAggregateVerify
+  equals EthLib's when the message does not hash to the identity and the signature is not the
+  identity's encoding (`fastAggregateVerifyBytes_eq_eth`), and on the identity's encoding too
+  given non-degeneracy (`Bls/FavEthG2.lean`). That the pairing is bilinear and non-degenerate is
+  the one named hypothesis left, checked by the vectors, not proved (`H_vec` in the comments).
 - **Committee keys** are not validated, as in the consensus specs' light client and in Helios:
   the store keeps a committee's encodings under the root that proved them and, per signature,
   takes the committee's aggregate key less the absent keys when more than half signed. On a
@@ -57,7 +61,7 @@ What the proofs cover, in brief (the statements are in the files):
   (`Anchor.lean`, `Trie.lean`, `Spec/MptTrie.lean`, `Inclusion.lean`).
 
 `scripts/check-axioms.sh` audits every constant of `LeanLight` and `LeanLightProofs` (about
-6,100, 2,865 of them theorems): each may rest only on `propext`, `Classical.choice` and
+6,600, 3,210 of them theorems): each may rest only on `propext`, `Classical.choice` and
 `Quot.sound`, so no `sorry` and no `native_decide`. `scripts/check-kernel.sh` replays every
 module through Lean's kernel. `scripts/check-runtime.sh` refuses any `@[implemented_by]`,
 `@[extern]`, `opaque` or `unsafe` in `LeanLight/`. CI runs all three on every push.
@@ -76,10 +80,10 @@ store, whose rules are the consensus specs' as transcribed (`docs/spec-16-light-
 "The protocol").
 
 **Assumed, checked by test vectors.** That the pairing is bilinear and non-degenerate on
-G1 × G2, and that the fast final exponentiation computes the cube of the naive one: named
-hypotheses in the BLS theorems (`MillerLoopsCube`, `FinalExpCube`, `PairingCheckIs`, `HashInG2`;
-`H_vec` in the design notes), checked by the BLS vectors and the differential test, never
-axioms.
+G1 × G2: named hypotheses in the BLS theorems (`PairingCheckIs`, `PairingNonDegenerate`; `H_vec`
+in the design notes), checked by the BLS vectors and the differential test, never axioms. The
+others H_vec named are theorems since 2026-10-30: `HashInG2` (`hashInG2`), `FinalExpCube`
+(`finalExp_toGF`) and `MillerLoopsCube` (`millerLoopsCube`, on G2, where it holds).
 
 **Assumed, the chain's.** That a sync committee's keys are points of G1 and its
 `aggregate_pubkey` their sum (`Committee.Consistent`, a hypothesis of the signature theorems in

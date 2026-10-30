@@ -20,15 +20,18 @@ argument on G1 × G2, given three hypotheses, never axioms (the first and third 
   `[r]Q = O`), the runtime's `pairingCheck` of two pairs is true exactly when the product of
   their values under `e` is one. That the Miller loop and the final exponentiation compute such
   an `e`, bilinear and non-degenerate (the reduced optimal ate pairing on G1 × G2), is checked by
-  vectors, not proved; the cube lemma (`finalExp_isOne_iff`) is the part that is. The hypothesis
+  vectors, not proved; the cube lemma (`finalExp_isOne_iff`) and the final exponentiation's
+  value (`finalExp_toGF`) are the parts that are. The hypothesis
   and the additivity of `e` are over the subgroups only: over every point of `E(𝔽_p)` and
   `E'(𝔽_{p²})` no `e` satisfies both (the runtime's check is not bilinear off G2), and a theorem
   taking them there would be vacuous.
 * `HashOnCurve`: what `hash_to_G2` returns is a reduced point of `E'`. Since LC4b's rest a
   theorem (`hashOnCurve`, `LeanLightProofs.Bls.HashCurve`), so `fastAggregateVerify_iff_pairing`
   and `fastAggregateVerifyBytes_iff_pairing` there state these without it.
-* `HashInG2`: that point is in G2, `[r]H = O` (`clear_cofactor`'s `[h_eff]` lands in G2). Not
-  proved: H_vec's, checked by vectors.
+* `HashInG2`: that point is in G2, `[r]H = O` (`clear_cofactor`'s `[h_eff]` lands in G2). Since
+  proved too (`hashInG2`, `LeanLightProofs.Bls.HashCurve`, from `#E'(𝔽_{p²}) = r·h₂`,
+  `LeanLightProofs.Bls.PointCount`), so `fastAggregateVerify_iff_pairing` and
+  `fastAggregateVerifyBytes_iff_pairing` there take `PairingCheckIs e` alone.
 
 The hypotheses take `Spec.Bn254`'s shape for a pairing (reuse rule D18): the map and its laws are
 variables of the theorem.
@@ -139,11 +142,11 @@ def PairingCheckIs {GT : Type} [CommGroup GT] (e : E1.toAffine.Point → E2.toAf
 def HashOnCurve : Prop :=
   ∀ msg dst h, H2C.hashToG2? msg dst = some h → h.Reduced ∧ E2.Nonsingular h.toJ
 
-/-- H_vec's, not proved: what `hash_to_G2` returns is in G2, `[r]H = O`. `clear_cofactor` is
-`[h_eff]` of a point of `E'` (`hashSum_spec`, `LeanLightProofs.Bls.HashCurve`), and RFC 9380 chooses
-`h_eff` so that `[h_eff]` maps `E'(𝔽_{p²})` into G2; that `[r][h_eff]` kills every point of `E'`
-(the group's order) is not proved here. Checked by vectors (RFC 9380's and Ethereum's
-`hash_to_G2` outputs). A hypothesis of the theorems that take it, never an axiom. -/
+/-- What `hash_to_G2` returns is in G2, `[r]H = O`. `clear_cofactor` is `[h_eff]` of a point of
+`E'` (`hashSum_spec`, `LeanLightProofs.Bls.HashCurve`), and RFC 9380 chooses `h_eff` so that
+`[h_eff]` maps `E'(𝔽_{p²})` into G2. A hypothesis of the theorems here, never an axiom; proved
+since (`hashInG2`, `LeanLightProofs.Bls.HashCurve`: `[r][h_eff]` kills every point of `E'`, whose
+group has `r·h₂` elements, `card_E2`). -/
 def HashInG2 : Prop :=
   ∀ msg dst h, H2C.hashToG2? msg dst = some h → R • aff2 h.toJ = 0
 

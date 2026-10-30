@@ -354,6 +354,19 @@ theorem E2_nonsingular_iff {x y : GFp2} : E2.Nonsingular ![x, y, 1] ↔ y ^ 2 = 
     rw [show (13824 : GFp) = ((13824 : ℕ) : GFp) by norm_num, cast_eq_zero (by decide)] at this
     exact absurd this (by decide)
 
+/-- No point of `E'` has `y = 0`: `x³ = −4(1 + u)` would make the norm `32` a cube, and so 2. -/
+theorem E2_y_ne_zero {x y : GFp2} (h : y ^ 2 = x ^ 3 + ⟨4, 4⟩) : y ≠ 0 := by
+  rintro rfl
+  have hx : x ^ 3 = -⟨4, 4⟩ := by linear_combination -h
+  have hn : (QuadraticAlgebra.norm x) ^ 3 = 32 := by
+    rw [← map_pow, hx, QuadraticAlgebra.norm_def]; norm_num
+  apply two_not_cube ((QuadraticAlgebra.norm x) ^ 2 * 8⁻¹)
+  have h8 : (8 : GFp) ≠ 0 := by
+    rw [show (8 : GFp) = ((8 : ℕ) : GFp) by norm_num, Ne, cast_eq_zero (by decide)]; decide
+  rw [mul_pow, ← pow_mul, show 2 * 3 = 3 * 2 by rfl, pow_mul, hn, inv_pow]
+  field_simp
+  norm_num
+
 namespace G2J
 
 /-- The triple of `𝔽_{p²}` a runtime `G2J` stands for. -/

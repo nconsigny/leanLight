@@ -23,7 +23,8 @@ light client holds a committee only under a root the previous committee signed (
 * `signersKey?_eq`: on a consistent committee the store's key is that sum, whichever path ran.
 * `verifySignature_consistent`: on a consistent committee the store's signature check is
   `fastAggregateVerify` over the participants' keys, as `verifySignature_iff` stated it before.
-* `verifySignature_iff_pairing`: with H_vec's pairing and `HashInG2`, on a consistent committee,
+* `verifySignature_iff_pairing`: with H_vec's pairing (`HashInG2` is proved, `hashInG2`), on a
+  consistent committee,
   the check is true exactly when the participants' keys sum to a point `A ≠ O`, the signature is a
   point `σ`, the signing root hashes to `H`, and `e(g₁, σ) = e(A, H)`.
 -/
@@ -294,13 +295,13 @@ include he1 in
 /-- **The signature check is the verification equation (25c, 25d).** On a committee as the
 chain holds one (`Committee.Consistent`: its keys decode to points of G1, its aggregate key to
 their sum), given H_vec's pairing on G1 × G2 (`PairingCheckIs e`, for an `e` additive in its
-first argument there) and H_vec's `HashInG2`: the store's signature check of `u` is true exactly
-when the fork table gives a version `v` at the epoch of `max(signature_slot, 1) − 1`, the keys
+first argument there; `HashInG2` is a theorem, `hashInG2`): the store's signature check of `u`
+is true exactly when the fork table gives a version `v` at the epoch of `max(signature_slot, 1) − 1`, the keys
 whose bit is set sum to a point `A` other than the identity, the signature's bytes pass its
 checks as a point `σ`, the signing root of the attested header's root under
 `compute_domain(DOMAIN_SYNC_COMMITTEE, v, genesis_validators_root)` hashes to a point `H`, and
 `e(g₁, σ) = e(A, H)`. -/
-theorem verifySignature_iff_pairing (hcheck : PairingCheckIs e) (hg2 : HashInG2) (c : Chain)
+theorem verifySignature_iff_pairing (hcheck : PairingCheckIs e) (c : Chain)
     {com : Committee} {keys : Array G1A} (h : com.Consistent keys) (u : Update) :
     verifySignature c com u = true ↔
       ∃ v, c.versionAt (c.epochAt (max u.signatureSlot 1 - 1)) = some v ∧
@@ -319,7 +320,7 @@ theorem verifySignature_iff_pairing (hcheck : PairingCheckIs e) (hg2 : HashInG2)
     exact ⟨(mapM_decode_mem hl hk).1, (mapM_decode_mem hl hk).2, h.inG1 p hk⟩
   rw [verifySignature_consistent c h u]
   refine exists_congr fun v => and_congr_right fun _ => ?_
-  exact fastAggregateVerify_iff_pairing e he1 hcheck hg2 _ hp _ _
+  exact fastAggregateVerify_iff_pairing e he1 hcheck _ hp _ _
 
 end Pairing
 
