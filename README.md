@@ -177,17 +177,27 @@ leanlight --consensus-rpc http://testing.mainnet.beacon-api.nimbus.team,https://
   balance 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 ```
 
-The client syncs in one round trip (bootstrap, the current period's update, the finality and
-optimistic updates fetched together; older periods after) and fetches a whole set of reads in
-one JSON-RPC batch, started while the sync is checked, at the block the optimistic update names:
-when the checked anchor is that block, the reads are there when the sync ends. Given several
-beacon nodes or execution endpoints, it asks them all at once and takes the first answer that
-verifies, and every node's finality and optimistic updates that have arrived, so a fast node
-behind the others does not hold the anchor back. A batch an endpoint refuses is halved, and a
-429 backed off. A signed header two updates repeat is checked once. None of this is in what the
-proofs cover, and none needs to be: every value it prints comes out of `LeanLight`'s checked
-readers, from a store only `Driver.start` and `Driver.feed` made (`read_sound`), never out of the
-JSON.
+**How it fetches.** The network, not the checking, sets a run's time, so the client spends its
+round trips carefully:
+
+- **One round trip to sync**: the bootstrap, the current period's update and the finality and
+  optimistic updates are fetched together; older periods' updates after the bootstrap.
+- **Reads fetched while the sync is checked**: the whole set of reads goes out in one JSON-RPC
+  batch as soon as the optimistic update names its block, before it is verified; when the
+  checked anchor is that block, the reads are there when the sync ends.
+- **Several sources, the first good answer**: `--consensus-rpc` and `--execution-rpc` take
+  comma-separated lists. All are asked at once and the first answer that verifies is used; every
+  beacon node's finality and optimistic updates that arrived are fed to the store too, so a fast
+  node that is behind does not hold the anchor back.
+- **Batches an endpoint refuses**: a batch answered with an error is halved and asked again, a
+  429 backed off (dRPC's free tier refuses a batch of 12 proofs and serves batches of 3).
+- **One check per signature**: a beacon node's optimistic update usually repeats its finality
+  update's signed header, which is then checked once.
+
+None of this is in what the proofs cover, and none needs to be: every value the client prints
+comes out of `LeanLight`'s checked readers, from a store only `Driver.start` and `Driver.feed`
+made (`read_sound`), never out of the JSON. Fetching can delay a read or make it fail, not make a
+wrong value pass.
 
 ## Speed
 
@@ -220,15 +230,16 @@ endpoints, and compares every read at leanLight's anchored block with Helios's a
 (mainnet, the Nimbus beacon node with publicnode's or dRPC's execution endpoint, 3 rounds each;
 `bench/results/2026-10-30/`). The network dominates, so read it as two request strategies over
 the same network rather than as the two verifiers' speed: leanlight fetches its sync objects in
-one round trip and its reads in one JSON-RPC batch, while Helios asks one call per read.
+one round trip and its reads in one JSON-RPC batch started during the sync ("How it fetches"),
+while Helios asks one call per read after it.
 
 | | Helios | leanLight |
 |---|---|---|
-| Sync from a fresh checkpoint | 0.8–1.4 s | 0.25–0.84 s (verifying 0.05–0.09 s) |
-| Sync from a checkpoint 6 sync periods old | 0.9–1.3 s | 0.8–1.2 s (verifying 0.2–0.3 s) |
-| 14 reads (balances, nonces, code, storage), publicnode | 0.36–0.47 s, one call each | 0.09–0.13 s, one batch |
-| 14 reads, dRPC | 1.8–8.3 s, one call each | 3.5–3.6 s, one batch (dRPC answers batches slowly) |
-| Memory (peak RSS) | 22–26 MB | 27–73 MB |
+| Sync from a fresh checkpoint | 0.9–1.1 s | 0.27–0.68 s (verifying 0.07–0.13 s) |
+| Sync from a checkpoint 6 sync periods old | 1.0–1.1 s | 1.0–1.4 s (verifying 0.27–0.37 s) |
+| 14 reads (balances, nonces, code, storage) after a sync, publicnode | 0.46–0.55 s, one call each | 5 ms to 0.34 s, fetched during the sync |
+| The same, dRPC | 1.7–1.9 s, one call each | 1.0–1.4 s, in the batches dRPC accepts |
+| Memory (peak RSS) | 23–25 MB | 27–78 MB |
 | Binary | 25 MB | 6.5 MB |
 
 Every value leanLight returned equalled the endpoint's at its block, and Helios's wherever Helios

@@ -1,10 +1,10 @@
-[2m2026-10-30T13:03:01.144179Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
-[2m2026-10-30T13:03:01.148471Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
-[2m2026-10-30T13:03:01.151902Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
-[2m2026-10-30T13:03:01.155298Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
-[2m2026-10-30T13:03:01.158793Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
-[2m2026-10-30T13:03:01.162553Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
-[2m2026-10-30T13:03:01.162833Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m saved checkpoint to DB: 0xce21633ba9142a44f0ea807006cf09044537d90ca78dedbfdbe9f5da66a9d9f3
-[2m2026-10-30T13:03:01.276229Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m saved checkpoint to DB: 0x70a2052481e115822220f57b7fc8fe2dc9c3cae068208fc46bc522249242a9be
-[2m2026-10-30T13:03:01.549456Z[0m [32m INFO[0m [2mhelios::client[0m[2m:[0m latest block     number=26305742 age=26s
-[2m2026-10-30T13:03:01.651225Z[0m [32m INFO[0m [2mhelios::client[0m[2m:[0m finalized block  number=26305655
+[2m2026-10-30T17:43:52.866294Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
+[2m2026-10-30T17:43:52.873199Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
+[2m2026-10-30T17:43:52.879542Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
+[2m2026-10-30T17:43:52.886143Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
+[2m2026-10-30T17:43:52.892428Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
+[2m2026-10-30T17:43:52.898450Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m sync committee updated
+[2m2026-10-30T17:43:52.898818Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m saved checkpoint to DB: 0xce21633ba9142a44f0ea807006cf09044537d90ca78dedbfdbe9f5da66a9d9f3
+[2m2026-10-30T17:43:53.004056Z[0m [32m INFO[0m [2mhelios::consensus[0m[2m:[0m saved checkpoint to DB: 0xddd5d0ff1f51085d45623ae432559295069ecae4e0ec1294601978e7b061cdf5
+[2m2026-10-30T17:43:53.228444Z[0m [32m INFO[0m [2mhelios::client[0m[2m:[0m finalized block  number=26307059
+[2m2026-10-30T17:43:53.315585Z[0m [32m INFO[0m [2mhelios::client[0m[2m:[0m latest block     number=26307143 age=18s
