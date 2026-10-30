@@ -220,16 +220,13 @@ def headerRlp (block : Json) : Except String ByteArray := do
   | some e => return ⟨e.toArray⟩
   | none => throw "header too long"
 
-/-- An `eth_getProof` proof's nodes, joined as `Mpt.lookup` reads them: the first, then every
-later node of at least 32 bytes (a shorter one is inline in its parent). -/
+/-- An `eth_getProof` proof's nodes, joined in order as `Mpt.lookup` reads them. -/
 def proofNodes (items : Json) : Except String ByteArray := do
   let arr ← items.getArr?
   let mut out := ByteArray.empty
-  let mut i := 0
   for it in arr do
     let some b := hexBytes (← it.getStr?) | throw "proof node: not hex"
-    if i == 0 || b.size ≥ 32 then out := out ++ b
-    i := i + 1
+    out := out ++ b
   return out
 
 /-- The anchored block: its beacon header and the EL header's RLP, bound. -/

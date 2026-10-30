@@ -8,9 +8,12 @@ values by the Keccak-256 of its root node. A proof of a key (EIP-1186's `eth_get
 nodes on the path from the root, each the RLP list of a node: a branch of 17 items, sixteen
 children then a value, or a leaf or extension of 2 items, a hex-prefix path (Appendix C) then
 the value or the child. A child shorter than 32 bytes sits inline in its parent; any other is
-named by its hash and is the proof's next node.
+named by its hash and is the proof's next node. If the proof stream also lists an inline child
+as a standalone RLP list item next (as anvil's `eth_getProof` does), `node` verifies that its
+list payload matches the parent's inline payload and consumes it; if omitted (as geth's
+`eth_getProof` does), `node` leaves the stream at the following hashed node.
 
-`walk` reads a proof against a key as `lkd_verified::mpt` does: each node is a list payload,
+`walk` reads a proof against a key: each node is a list payload,
 `step` says what it says about the key from nibble `nib`, and `lookup` accepts only a proof
 whose every node is used. A key is at most 32 bytes; the empty trie, whose root is
 `emptyRoot`, has no node, and two proofs say it holds nothing (`lookup_empty`): the empty
@@ -128,8 +131,18 @@ def step (key : Bytes) (nib : Nat) (p : Bytes) : Option Step :=
     else if cs.length = 2 then short p (cs[0]?.getD default) (cs[1]?.getD default) key nib
     else none
 
+/-- What remains of `stream` after an inline node `q`, consuming a matching copy at the front if
+present. -/
+def afterInline (q stream : Bytes) : Bytes :=
+  match itemAt stream 0 stream.length with
+  | some it =>
+    if it.list = true ∧ window stream it.start it.stop = q then stream.drop it.stop else stream
+  | none => stream
+
 /-- The node `nx` names: its list payload and what follows it in the proof `stream`. A hashed
-node is the stream's first item, a list whose Keccak-256 is the hash. -/
+node is the stream's first item, a list whose Keccak-256 is the hash; an inline node is already in
+its parent, and if the stream also lists it next (as some `eth_getProof` endpoints do), that copy
+is consumed when its payload matches `q`. -/
 def node (nx : Next) (stream : Bytes) : Option (Bytes × Bytes) :=
   match nx with
   | .hashed h =>
@@ -139,7 +152,7 @@ def node (nx : Next) (stream : Bytes) : Option (Bytes × Bytes) :=
         some (window stream it.start it.stop, stream.drop it.stop)
       else none
     | none => none
-  | .inline q => some (q, stream)
+  | .inline q => some (q, afterInline q stream)
 
 /-- The walk from node `nx` with `nib` nibbles of the key consumed: what it ends with, and the
 proof left over. `n` is fuel. -/
@@ -154,9 +167,8 @@ def walk : Nat → (key : Bytes) → (nib : Nat) → Next → (stream : Bytes) �
       | some (.found f) => some (f, rest)
       | some (.next nx' nib') => walk n key nib' nx' rest
 
-/-- What the trie whose root hash is `root` holds at `key`, as `proof` proves it:
-`lkd_verified::mpt::lookup`. Under `emptyRoot`, the empty proof and `[0x80]`, the root's
-encoding, prove the key absent. -/
+/-- What the trie whose root hash is `root` holds at `key`, as `proof` proves it. Under
+`emptyRoot`, the empty proof and `[0x80]`, the root's encoding, prove the key absent. -/
 def lookup (root key proof : Bytes) : Option Found :=
   if maxKey < key.length then none
   else if (proof = [] ∨ proof = [0x80]) ∧ root = emptyRoot then some .absent
@@ -204,6 +216,10 @@ theorem itemAt_raw {s₁ s₂ : Bytes} {i₁ i₂ : Span} (h₁ : itemAt s₁ 0 
 /-- A Keccak-256 collision: two different byte strings with the same Keccak-256. -/
 def IsCollision (p : Bytes × Bytes) : Prop := p.1 ≠ p.2 ∧ keccak p.1 = keccak p.2
 
+theorem node_inline (q stream : Bytes) :
+    node (.inline q) stream = some (q, afterInline q stream) :=
+  rfl
+
 /-- The two byte strings `collideWalk` finds where two walks first read different nodes for
 the same hash. -/
 def collideWalk : Nat → (key : Bytes) → (nib : Nat) → Next → Bytes → Bytes → Bytes × Bytes
@@ -221,7 +237,7 @@ def collideWalk : Nat → (key : Bytes) → (nib : Nat) → Next → Bytes → B
       | _, _ => ([], [])
     | .inline q =>
       match step key nib q with
-      | some (.next nx' nib') => collideWalk n key nib' nx' s₁ s₂
+      | some (.next nx' nib') => collideWalk n key nib' nx' (afterInline q s₁) (afterInline q s₂)
       | _ => ([], [])
 
 /-- Where two walks of the same key through the same nodes end differently, `collideWalk` finds
@@ -272,7 +288,8 @@ theorem collideWalk_spec {n : Nat} {key : Bytes} {nib : Nat} {nx : Next} {s₁ s
             · rw [if_neg hc₂] at h₂; simp at h₂
           · rw [if_neg hc₁] at h₁; simp at h₁
     | inline q =>
-      simp only [node] at h₁ h₂
+      rw [node_inline] at h₁ h₂
+      dsimp only at h₁ h₂
       simp only [collideWalk]
       cases hs : step key nib q with
       | none => simp [hs] at h₁
@@ -914,7 +931,13 @@ def nodeB (nx : Next) (proof : ByteArray) (off : Nat) : Option (ByteArray × Nat
         some (extract proof it.start it.stop, it.stop)
       else none
     | none => none
-  | .inline q => some (⟨q.toArray⟩, off)
+  | .inline q =>
+    match itemAtB proof off proof.size with
+    | some it =>
+      if it.list = true ∧ slice proof it.start it.stop = q then
+        some (⟨q.toArray⟩, it.stop)
+      else some (⟨q.toArray⟩, off)
+    | none => some (⟨q.toArray⟩, off)
 
 /-- `walk`, over a `ByteArray`: the proof is `proof` from `off` on, and what is left of it is
 given by the offset it starts from. `n` is fuel. -/
@@ -1029,7 +1052,24 @@ theorem nodeB_eq (nx : Next) (proof : ByteArray) (off : Nat) :
     (nodeB nx proof off).map (fun r => (r.1.data.toList, proof.data.toList.drop r.2)) =
       node nx (proof.data.toList.drop off) := by
   cases nx with
-  | inline q => rfl
+  | inline q =>
+    simp only [nodeB, node, afterInline, itemAtB_off]
+    cases itemAt (proof.data.toList.drop off) 0 (proof.data.toList.drop off).length with
+    | none => simp
+    | some it =>
+      simp only [Option.map_some, Span.shift, slice_eq]
+      have h2 : (proof.data.toList.take (it.stop + off)).drop (it.start + off) =
+          window (proof.data.toList.drop off) it.start it.stop := by
+        rw [window_drop_off, Nat.add_comm off, Nat.add_comm off]; rfl
+      have h3 : proof.data.toList.drop (it.stop + off) =
+          (proof.data.toList.drop off).drop it.stop := by
+        rw [List.drop_drop, Nat.add_comm]
+      rw [h2]
+      by_cases hc : it.list = true ∧ window (proof.data.toList.drop off) it.start it.stop = q
+      · rw [ite_eq_left hc, ite_eq_left hc]
+        simp [h3]
+      · rw [ite_eq_right hc, ite_eq_right hc]
+        simp
   | hashed h =>
     simp only [nodeB, node, itemAtB_off]
     cases itemAt (proof.data.toList.drop off) 0 (proof.data.toList.drop off).length with

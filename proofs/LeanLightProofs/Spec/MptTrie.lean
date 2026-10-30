@@ -20,10 +20,9 @@ KEC(RLP(c(𝔍, 0))), and `emptyRoot` for the empty map (`root_nil`). `proofOf I
 of `k` that geth's `Trie.Prove` builds (what its `eth_getProof` returns), in the stream form
 `lookup` reads: the root node's RLP, then that of every node on `k`'s path that its parent names by
 hash (an inline node is inside its parent). Not every node sends that proof: anvil (seen on 1.5.1)
-also lists each inline node on the path as an item of its own, which `lookup` refuses as sent (the
-`#guard`s at the end of the file build one); `lkd-netd` drops those items before `lookup`
-(`reads::proof_nodes`, tested, not proved: leanKohakuDesktop's `spec/04-verified-reads.md`). That happens in storage
-tries, where a node below the root can be shorter than 32 bytes (a state trie's leaves hold
+also lists each inline node on the path as an item of its own (`proofOfFull`), which `lookup`
+accepts as well (`lookup_complete_full`, and the `#guard`s at the end of the file). That happens in
+storage tries, where a node below the root can be shorter than 32 bytes (a state trie's leaves hold
 accounts, 70 bytes at least). For an empty trie geth sends nothing where `proofOf` is `0x80`;
 `lookup_empty` accepts both. `get I k` is what `I` holds at `k`. The roots of `ethereum/tests`'
 trie vectors are checked at the end of the file.
@@ -33,8 +32,9 @@ takes), values nonempty and shorter than 2^32 bytes. Keys need not share one len
 prefix-free (a key's value then sits in a branch), nor be unique (Appendix D assumes they are;
 `get` takes the first pair with a key).
 
-- `lookup_complete` (**completeness**): for every key `k` of at most 32 bytes,
-  `lookup (root I) k (proofOf I k) = some (get I k)`.
+- `lookup_complete` and `lookup_complete_full` (**completeness**): for every key `k` of at most
+  32 bytes, `lookup (root I) k` returns `some (get I k)` on both `proofOf I k` (hashed nodes only)
+  and `proofOfFull I k` (with standalone `< 32`-byte inline nodes included).
 - `lookup_sound` (**soundness**): a proof `lookup` accepts for `k` under `root I` gives
   `get I k`, or the two byte strings `collision (root I) k proof (proofOf I k)` are different
   and have the same Keccak-256. With `binding`, this is what makes a proved read the map's
@@ -47,15 +47,17 @@ as `accountRlp` (which `accountOf_iff` reads back), an absent one being `emptyAc
 being zero (`StorageOk`). Accounts are `AccountValid` (the Yellow Paper's validity function);
 one is read back only when it is `AccountOk` (a nonce below 2^64 and a balance below 2^128, the
 code's bounds), which completeness asks of the account read alone, and soundness of none.
-`account_complete` and `storage_complete`, `account_sound` and `storage_sound` are the two
-theorems again for `Spec.Mpt.account` and `Spec.Mpt.storage`, with one more pair named, as a
-hash of the key cannot be assumed injective: `clash S a`, the first key of `S` with `a`'s
-Keccak-256, and `a`, which is a collision exactly when the two differ.
+`account_complete`, `account_complete_full`, `storage_complete`, `storage_complete_full`,
+`account_sound` and `storage_sound` are the completeness and soundness theorems for
+`Spec.Mpt.account` and `Spec.Mpt.storage`, with one more pair named, as a hash of the key cannot
+be assumed injective: `clash S a`, the first key of `S` with `a`'s Keccak-256, and `a`, which is a
+collision exactly when the two differ.
 
-The proof follows the walk down the honest proof (`walk_compose`): at the node c(𝔍', i) for
-the pairs `𝔍'` whose keys start with `k`'s first `i` nibbles (`Under`), `step` reads what
-Appendix D put there (`step_leaf`, `step_ext`, `step_branch`), the next node being inline or
-the proof's next item (`child_cap`, `node_hashed`). Every node has an RLP encoding (`encodes`).
+The proof follows the walk down the honest proof (`walk_compose`, `walk_compose_full`): at the
+node c(𝔍', i) for the pairs `𝔍'` whose keys start with `k`'s first `i` nibbles (`Under`), `step`
+reads what Appendix D put there (`step_leaf`, `step_ext`, `step_branch`), the next node being
+inline or the proof's next item (`child_cap`, `node_hashed`, `node_inline_composeProof`,
+`node_inline_present`). Every node has an RLP encoding (`encodes`).
 -/
 
 namespace LeanLight.Spec.Mpt.Trie
@@ -258,11 +260,45 @@ end
 /-- The proof of `k` in the trie of `I`, as geth's `Trie.Prove` builds it for `eth_getProof`
 (EIP-1186) and `lookup` reads it: the root node's RLP, then the RLP of every node on `k`'s path
 that its parent names by hash, one after the other; an inline node is inside its parent (anvil
-lists inline nodes as items as well, a proof `lookup` refuses). For the empty map it is `0x80`,
-the RLP of `()`, as anvil proves a slot of an account without storage; geth sends nothing,
-which `lookup_empty` accepts too. -/
+lists inline nodes as items as well, `proofOfFull`, which `lookup` also accepts). For the empty map
+it is `0x80`, the RLP of `()`, as anvil proves a slot of an account without storage; geth sends
+nothing, which `lookup_empty` accepts too. -/
 def proofOf (I : Map) (k : Bytes) : Bytes :=
   rlp (compose (y I) 0) ++ composeProof (nibbles k) (y I) 0
+
+mutual
+/-- `capProof` when inline nodes are also emitted in the proof stream (as anvil's `eth_getProof`
+does): every nonempty node on `k`'s path emits `rlp (compose (e :: J) i)`. -/
+def capProofFull (k : List Nat) : List Entry → Nat → Bytes
+  | [], _ => []
+  | e :: J, i => rlp (compose (e :: J) i) ++ composeProofFull k (e :: J) i
+termination_by J i => (size J i, 1)
+decreasing_by all_goals exact Prod.Lex.right _ (by decide)
+
+/-- `composeProof` when inline nodes are also emitted in the proof stream. -/
+def composeProofFull (k : List Nat) : List Entry → Nat → Bytes
+  | [], _ => []
+  | [_], _ => []
+  | e :: e' :: J, i =>
+    if i < (common (e :: e' :: J)).length then
+      if k.take (common (e :: e' :: J)).length = common (e :: e' :: J) then
+        capProofFull k (e :: e' :: J) (common (e :: e' :: J)).length
+      else []
+    else
+      match k[i]? with
+      | some x => capProofFull k (sub (e :: e' :: J) i x) (i + 1)
+      | none => []
+termination_by J i => (size J i, 0)
+decreasing_by
+  · rename_i h _
+    exact Prod.Lex.left _ _ (size_lt (by simp) h fun f hf => (common_prefix _ f hf).length_le)
+  · exact Prod.Lex.left _ _ (by have := size_sub (e :: e' :: J) i x; simp at this; omega)
+end
+
+/-- The proof of `k` in the trie of `I` when inline nodes on `k`'s path are also listed as items in
+the proof stream (as anvil's `eth_getProof` returns). -/
+def proofOfFull (I : Map) (k : Bytes) : Bytes :=
+  rlp (compose (y I) 0) ++ composeProofFull (nibbles k) (y I) 0
 
 /-- What `I` holds at `k`: the value of the first pair with key `k`, or absence. -/
 def get (I : Map) (k : Bytes) : Found :=
@@ -505,6 +541,16 @@ theorem node_hashed {ts : List Tree} {q e r : Bytes} (he : encodeTree (.branch t
     rw [hstop, Nat.zero_add, window, List.take_left' rfl, List.drop_zero]
   have hq' : window (e ++ r) it.start it.stop = q := Option.some.inj (h5.symm.trans hq)
   simp only [Mpt.node, hi, hl, hw, true_and, ite_true, hq']
+  rw [hstop, Nat.zero_add, List.drop_left' rfl]
+
+/-- A node named inline whose encoding is also at the front of the stream is consumed from it,
+leaving what follows. -/
+theorem node_inline_present {ts : List Tree} {q e r : Bytes} (he : encodeTree (.branch ts) = some e)
+    (hq : encodeTrees ts = some q) : Mpt.node (.inline q) (e ++ r) = some (q, r) := by
+  obtain ⟨it, hi, hpos, hstop, h1, h2, h3, h4, hl, h5⟩ :=
+    encodes_at (bs := e ++ r) (p := 0) he (Nat.le_refl _) (by rw [window_all])
+  have hq' : window (e ++ r) it.start it.stop = q := Option.some.inj (h5.symm.trans hq)
+  simp only [Mpt.node, Mpt.afterInline, hi, hl, hq', and_self, ite_true]
   rw [hstop, Nat.zero_add, List.drop_left' rfl]
 
 /-! ## Every node has an encoding -/
@@ -759,10 +805,18 @@ theorem short_hp {q : Bytes} {x : List Nat} {t : Bool} {s0 c : Span} {key : Byte
     rw [ite_eq_left (by omega)]
 
 /-- `nx` names the node c(𝔍, i), and `pre` is what the proof holds of it before the nodes
-below it: c(𝔍, i)'s RLP when `nx` is its hash, nothing when `nx` is the node inline. -/
+below it: c(𝔍, i)'s RLP when `nx` is its hash, nothing when `nx` is the node inline (whose RLP is
+shorter than 32 bytes). -/
 def Points (J : List Entry) (i : Nat) (nx : Next) (pre : Bytes) : Prop :=
   (nx = .hashed (keccak (rlp (compose J i))) ∧ pre = rlp (compose J i)) ∨
-    (∃ ts q, compose J i = .branch ts ∧ encodeTrees ts = some q ∧ nx = .inline q ∧ pre = [])
+    (∃ ts q, compose J i = .branch ts ∧ encodeTrees ts = some q ∧
+      (rlp (compose J i)).length < 32 ∧ nx = .inline q ∧ pre = [])
+
+/-- `nx` names the node c(𝔍, i) when every node on the path (hashed or inline) emits
+`rlp (compose J i)` in the proof stream (`capProofFull`). -/
+def PointsFull (J : List Entry) (i : Nat) (nx : Next) : Prop :=
+  nx = .hashed (keccak (rlp (compose J i))) ∨
+    (∃ ts q, compose J i = .branch ts ∧ encodeTrees ts = some q ∧ nx = .inline q)
 
 /-- The item that encodes n(∅, i) = `()` proves absence from a branch. -/
 theorem child_empty {q : Bytes} {c : Span} {i nib : Nat} (hc : Encodes q (cap [] i) c) :
@@ -798,7 +852,7 @@ theorem child_cap {q : Bytes} {c : Span} {e : Entry} {J : List Entry} {i nib : N
       have := congrArg List.length hw
       rw [window_length hsl] at this
       omega
-    refine ⟨_, [], ?_, Or.inr ⟨ts, _, h1, hts, rfl, rfl⟩, rfl⟩
+    refine ⟨_, [], ?_, Or.inr ⟨ts, _, h1, hts, hlt, rfl, rfl⟩, rfl⟩
     unfold child
     rw [hl, ite_eq_left rfl, ite_eq_left ⟨by omega, this⟩]
   · rw [ite_eq_right hlt] at hc
@@ -1077,28 +1131,108 @@ theorem step_branch {key : Bytes} {J : List Entry} {i : Nat} {q : Bytes}
 theorem nodeEnc (J : List Entry) (i : Nat) (h : ∀ e ∈ J, EntryOk e) : NodeEnc J i :=
   encodes (size J i + 1) J i (Nat.lt_succ_self _) h
 
+/-- Every stream emitted by `composeProof` is either empty or begins with a hashed node whose RLP
+is at least 32 bytes. -/
+theorem composeProof_head_ge32 (k : List Nat) : ∀ (n : Nat) (J : List Entry) (i : Nat),
+    size J i < n → (∀ e ∈ J, EntryOk e) →
+    composeProof k J i = [] ∨
+      ∃ t u, encodeTree t = some u ∧ 32 ≤ u.length ∧ u <+: composeProof k J i
+  | 0, _, _, h, _ => absurd h (Nat.not_lt_zero _)
+  | n + 1, [], i, _, _ => by rw [composeProof]; exact Or.inl rfl
+  | n + 1, [e], i, _, _ => by rw [composeProof]; exact Or.inl rfl
+  | n + 1, e :: e' :: J, i, hn, hJ => by
+    have hpre := common_prefix (e :: e' :: J)
+    rw [composeProof]
+    have stepCap : ∀ (J' : List Entry) (j : Nat), size J' j < n → (∀ f ∈ J', EntryOk f) →
+        capProof k J' j = [] ∨
+          ∃ t u, encodeTree t = some u ∧ 32 ≤ u.length ∧ u <+: capProof k J' j := by
+      intro J' j hsz hJ'
+      cases J' with
+      | nil => rw [capProof]; exact Or.inl rfl
+      | cons f J'' =>
+        rw [capProof]
+        split
+        · rw [List.nil_append]
+          exact composeProof_head_ge32 k n (f :: J'') j hsz hJ'
+        · rename_i hge
+          obtain ⟨ts, q, h1, h2, h3⟩ := (nodeEnc (f :: J'') j hJ').1 (by simp)
+          exact Or.inr ⟨compose (f :: J'') j, rlp (compose (f :: J'') j), h3, by omega, ⟨_, rfl⟩⟩
+    split
+    · rename_i hij
+      split
+      · have hsz : size (e :: e' :: J) (common (e :: e' :: J)).length < n := by
+          have := size_lt (J := e :: e' :: J) (by simp) hij
+            (fun f hf => (hpre f hf).length_le)
+          omega
+        exact stepCap _ _ hsz hJ
+      · exact Or.inl rfl
+    · cases k[i]? with
+      | none => exact Or.inl rfl
+      | some x =>
+        have hsz : size (sub (e :: e' :: J) i x) (i + 1) < n := by
+          have := size_sub (e :: e' :: J) i x
+          simp only [List.length_cons] at this
+          omega
+        exact stepCap _ _ hsz (fun f hf => hJ f (List.mem_filter.mp hf).1)
+
+/-- An inline node `< 32` bytes cannot match the front of `composeProof` (with nothing trailing),
+since `composeProof` is either empty or begins with a hashed node of at least 32 bytes. -/
+theorem node_inline_composeProof {ts : List Tree} {q e : Bytes} (k : List Nat) (J : List Entry)
+    (i : Nat) (hJ : ∀ f ∈ J, EntryOk f) (he : encodeTree (.branch ts) = some e)
+    (hq : encodeTrees ts = some q) (hlt : e.length < 32) :
+    Mpt.node (.inline q) (composeProof k J i) = some (q, composeProof k J i) := by
+  simp only [Mpt.node, Mpt.afterInline]
+  cases hi : itemAt (composeProof k J i) 0 (composeProof k J i).length with
+  | none => rfl
+  | some it =>
+    dsimp only
+    rw [ite_eq_right]
+    rintro ⟨hl, hwin⟩
+    obtain ⟨hpos, -, -, -, hstop, -, -, henc⟩ := itemAt_span hi
+    rw [hl, hwin] at henc
+    simp only [encodeItem, ↓reduceIte] at henc
+    have he' : encodeList q = some e := by
+      simp only [encodeTree, hq, Option.bind_some] at he
+      exact he
+    have hwe : window (composeProof k J i) 0 it.stop = e := Option.some.inj (henc.symm.trans he')
+    rcases composeProof_head_ge32 k (size J i + 1) J i (Nat.lt_succ_self _) hJ with hnil |
+        ⟨t, u, hu, hge, r, hcp⟩
+    · simp [hnil, itemAt] at hi
+    · have htake : (composeProof k J i).take it.stop = e := by
+        simpa [window] using hwe
+      have heq_len : e.length = u.length := by
+        have h1 := encodeTree_itemLength (t := .branch ts) he ((composeProof k J i).drop it.stop)
+        have h2 := encodeTree_itemLength hu r
+        have happ : e ++ (composeProof k J i).drop it.stop = composeProof k J i := by
+          rw [← htake, List.take_append_drop]
+        rw [happ] at h1
+        rw [← hcp] at h1
+        rw [← h1, h2]
+      omega
+
 /-- The walk from a node on the key's path, given the proof from that node on, ends with what
-the pairs under it hold at the key, and leaves what follows. -/
+the pairs under it hold at the key, and consumes the whole stream. -/
 theorem walk_compose (key : Bytes) : ∀ (n : Nat) (J : List Entry) (i : Nat) (nx : Next)
-    (pre rest : Bytes), Under (nibbles key) J i → J ≠ [] → i ≤ 2 * key.length →
+    (pre : Bytes), Under (nibbles key) J i → J ≠ [] → i ≤ 2 * key.length →
     2 * key.length - i < n → Points J i nx pre →
-    walk n key i nx (pre ++ composeProof (nibbles key) J i ++ rest) =
-      some (holds J (nibbles key), rest)
-  | 0, _, _, _, _, _, _, _, _, h, _ => absurd h (Nat.not_lt_zero _)
-  | n + 1, J, i, nx, pre, rest, hu, hJ, hi, hn, hp => by
+    walk n key i nx (pre ++ composeProof (nibbles key) J i) =
+      some (holds J (nibbles key), [])
+  | 0, _, _, _, _, _, _, _, h, _ => absurd h (Nat.not_lt_zero _)
+  | n + 1, J, i, nx, pre, hu, hJ, hi, hn, hp => by
     have hkl := nibbles_length key
     obtain ⟨ts, q, h1, h2, h3⟩ := (nodeEnc J i hu.ok).1 hJ
-    have hnode : Mpt.node nx (pre ++ composeProof (nibbles key) J i ++ rest) =
-        some (q, composeProof (nibbles key) J i ++ rest) := by
-      rcases hp with ⟨rfl, rfl⟩ | ⟨ts', q', h1', h2', rfl, rfl⟩
-      · rw [List.append_assoc]
-        rw [h1] at h3 ⊢
+    have hnode : Mpt.node nx (pre ++ composeProof (nibbles key) J i) =
+        some (q, composeProof (nibbles key) J i) := by
+      rcases hp with ⟨rfl, rfl⟩ | ⟨ts', q', h1', h2', hlt, rfl, rfl⟩
+      · rw [h1] at h3 ⊢
         exact node_hashed h3 h2
       · rw [h1] at h1'
         cases h1'
         rw [h2] at h2'
         cases h2'
-        simp [Mpt.node]
+        rw [List.nil_append]
+        have h3' : encodeTree (.branch ts) = some (rlp (compose J i)) := by rw [← h1]; exact h3
+        exact node_inline_composeProof (nibbles key) J i hu.ok h3' h2 hlt
     simp only [walk, hnode]
     match J, hJ, hu, h1, h2 with
     | [e], _, hu, h1, h2 =>
@@ -1119,12 +1253,11 @@ theorem walk_compose (key : Bytes) : ∀ (n : Nat) (J : List Entry) (i : Nat) (n
           rw [composeProof, ite_eq_left hij, ite_eq_left hf, hcp]
           have hle : (common (e :: e' :: J')).length ≤ 2 * key.length := by
             have := congrArg List.length hf; simp at this; omega
-          exact walk_compose key n _ _ nx' pre' rest (under_ext hu hC hf) (by simp) hle
+          exact walk_compose key n _ _ nx' pre' (under_ext hu hC hf) (by simp) hle
             (by omega) hp'
         · rw [hs]
           dsimp only
           rw [composeProof, ite_eq_left hij, ite_eq_right hf, holds_off hC hf]
-          rfl
       · rename_i hij
         cases h1
         have hn' : ∀ x, NodeEnc (sub (e :: e' :: J') i x) (i + 1) := fun x =>
@@ -1135,7 +1268,6 @@ theorem walk_compose (key : Bytes) : ∀ (n : Nat) (J : List Entry) (i : Nat) (n
           dsimp only
           rw [composeProof, ite_eq_right hij,
             List.getElem?_eq_none (by rw [hkl]; omega)]
-          rfl
         · rw [hs]
           dsimp only
           have hx := nibbles_getElem? hlt
@@ -1150,8 +1282,93 @@ theorem walk_compose (key : Bytes) : ∀ (n : Nat) (J : List Entry) (i : Nat) (n
           dsimp only
           rw [← holds_sub hx, hsub, hcp]
           rw [← hsub]
-          exact walk_compose key n _ _ nx' pre' rest (under_sub hu hx) (by rw [hsub]; simp)
+          exact walk_compose key n _ _ nx' pre' (under_sub hu hx) (by rw [hsub]; simp)
             (by omega) (by omega) (by rw [hsub]; exact hp')
+
+/-- The walk from a node on the key's path when inline nodes are also emitted in the stream
+(`composeProofFull`), ending with what the pairs under it hold at the key and leaving `rest`. -/
+theorem walk_compose_full (key : Bytes) : ∀ (n : Nat) (J : List Entry) (i : Nat) (nx : Next)
+    (rest : Bytes), Under (nibbles key) J i → J ≠ [] → i ≤ 2 * key.length →
+    2 * key.length - i < n → PointsFull J i nx →
+    walk n key i nx (rlp (compose J i) ++ composeProofFull (nibbles key) J i ++ rest) =
+      some (holds J (nibbles key), rest)
+  | 0, _, _, _, _, _, _, _, h, _ => absurd h (Nat.not_lt_zero _)
+  | n + 1, J, i, nx, rest, hu, hJ, hi, hn, hp => by
+    have hkl := nibbles_length key
+    obtain ⟨ts, q, h1, h2, h3⟩ := (nodeEnc J i hu.ok).1 hJ
+    have hnode : Mpt.node nx (rlp (compose J i) ++ composeProofFull (nibbles key) J i ++ rest) =
+        some (q, composeProofFull (nibbles key) J i ++ rest) := by
+      rw [List.append_assoc]
+      have h3' : encodeTree (.branch ts) = some (rlp (compose J i)) := by rw [← h1]; exact h3
+      rcases hp with rfl | ⟨ts', q', h1', h2', rfl⟩
+      · exact node_hashed h3' h2
+      · rw [h1] at h1'
+        cases h1'
+        rw [h2] at h2'
+        cases h2'
+        exact node_inline_present h3' h2
+    simp only [walk, hnode]
+    match J, hJ, hu, h1, h2 with
+    | [e], _, hu, h1, h2 =>
+      rw [compose] at h1
+      cases h1
+      rw [step_leaf hu hi h2]
+      simp [composeProofFull]
+    | e :: e' :: J', _, hu, h1, h2 =>
+      have hC := common_prefix (e :: e' :: J')
+      rw [compose] at h1
+      split at h1
+      · rename_i hij
+        cases h1
+        rcases step_ext hu hij hC (nodeEnc _ _ hu.ok) h2 with
+          ⟨hf, nx', pre', hs, hp', -⟩ | ⟨hf, hs⟩
+        · rw [hs]
+          dsimp only
+          rw [composeProofFull, ite_eq_left hij, ite_eq_left hf, capProofFull]
+          have hle : (common (e :: e' :: J')).length ≤ 2 * key.length := by
+            have := congrArg List.length hf; simp at this; omega
+          have hpfull : PointsFull (e :: e' :: J') (common (e :: e' :: J')).length nx' := by
+            rcases hp' with ⟨rfl, -⟩ | ⟨ts', q', h1', h2', -, rfl, -⟩
+            · exact Or.inl rfl
+            · exact Or.inr ⟨ts', q', h1', h2', rfl⟩
+          exact walk_compose_full key n _ _ nx' rest (under_ext hu hC hf) (by simp) hle
+            (by omega) hpfull
+        · rw [hs]
+          dsimp only
+          rw [composeProofFull, ite_eq_left hij, ite_eq_right hf, holds_off hC hf]
+          rfl
+      · rename_i hij
+        cases h1
+        have hn' : ∀ x, NodeEnc (sub (e :: e' :: J') i x) (i + 1) := fun x =>
+          nodeEnc _ _ (fun f hf => hu.ok f (List.mem_filter.mp hf).1)
+        rcases step_branch hu hi hn' h2 with ⟨hik, hs⟩ | ⟨hlt, hsub, hs⟩ |
+            ⟨hlt, f, J'', hsub, nx', pre', hs, hp', -⟩
+        · rw [hs]
+          dsimp only
+          rw [composeProofFull, ite_eq_right hij,
+            List.getElem?_eq_none (by rw [hkl]; omega)]
+          rfl
+        · rw [hs]
+          dsimp only
+          have hx := nibbles_getElem? hlt
+          rw [composeProofFull, ite_eq_right hij, hx]
+          dsimp only
+          rw [← holds_sub hx, hsub]
+          simp [capProofFull, holds]
+        · rw [hs]
+          dsimp only
+          have hx := nibbles_getElem? hlt
+          rw [composeProofFull, ite_eq_right hij, hx]
+          dsimp only
+          rw [← holds_sub hx, hsub, capProofFull]
+          rw [← hsub]
+          have hpfull : PointsFull (sub (e :: e' :: J') i (nibble key i)) (i + 1) nx' := by
+            rw [hsub]
+            rcases hp' with ⟨rfl, -⟩ | ⟨ts', q', h1', h2', -, rfl, -⟩
+            · exact Or.inl rfl
+            · exact Or.inr ⟨ts', q', h1', h2', rfl⟩
+          exact walk_compose_full key n _ _ nx' rest (under_sub hu hx) (by rw [hsub]; simp)
+            (by omega) (by omega) hpfull
 
 /-- What the trie of `I` holds at `k` is what `I` holds there. -/
 theorem holds_y (I : Map) (k : Bytes) : holds (y I) (nibbles k) = get I k := by
@@ -1213,11 +1430,48 @@ theorem lookup_complete {I : Map} (hI : WellFormed I) {k : Bytes} (hk : k.length
         simp at this
         omega
     have hw := walk_compose k (2 * k.length + 1) (y I) 0 (.hashed (root I))
-      (rlp (compose (y I) 0)) [] hu hne (Nat.zero_le _) (by omega) (Or.inl ⟨rfl, rfl⟩)
-    rw [List.append_nil] at hw
+      (rlp (compose (y I) 0)) hu hne (Nat.zero_le _) (by omega) (Or.inl ⟨rfl, rfl⟩)
     unfold lookup
     rw [ite_eq_right (by omega), ite_eq_right (fun h => hnp h.1)]
     rw [proofOf, hw]
+    simp only [ite_true, holds_y]
+
+theorem proofOfFull_nil (k : Bytes) : proofOfFull [] k = [0x80] := by
+  simp [proofOfFull, y, compose, rlp, encodeTree, encodeBytes_nil, composeProofFull]
+
+/-- **Completeness for full proofs.** `lookup` also accepts `proofOfFull I k`, the proof stream
+that includes `< 32`-byte inline nodes on `k`'s path (as anvil's `eth_getProof` returns). -/
+theorem lookup_complete_full {I : Map} (hI : WellFormed I) {k : Bytes} (hk : k.length ≤ maxKey) :
+    lookup (root I) k (proofOfFull I k) = some (get I k) := by
+  cases hI' : I with
+  | nil =>
+    subst hI'
+    rw [root_nil, proofOfFull_nil, lookup_empty hk (Or.inr rfl)]
+    rfl
+  | cons p I' =>
+    rw [← hI']
+    have hu := under_y hI k
+    have hne : y I ≠ [] := by simp [y, hI']
+    obtain ⟨ts, q, h1, h2, h3⟩ := (nodeEnc (y I) 0 hu.ok).1 hne
+    have hhead : ∃ b r, rlp (compose (y I) 0) = b :: r ∧ 192 ≤ b.toNat := by
+      have h3' : encodeTree (.branch ts) = some (rlp (compose (y I) 0)) := by rw [← h1]; exact h3
+      simp only [encodeTree, h2, Option.bind_some] at h3'
+      exact encodeList_head h3'
+    obtain ⟨b, r, hb, h192⟩ := hhead
+    have hnp : ¬(proofOfFull I k = [] ∨ proofOfFull I k = [0x80]) := by
+      rw [proofOfFull, hb]
+      rintro (h | h)
+      · simp at h
+      · simp only [List.cons_append, List.cons.injEq] at h
+        have := congrArg UInt8.toNat h.1
+        simp at this
+        omega
+    have hw := walk_compose_full k (2 * k.length + 1) (y I) 0 (.hashed (root I))
+      [] hu hne (Nat.zero_le _) (by omega) (Or.inl rfl)
+    rw [List.append_nil] at hw
+    unfold lookup
+    rw [ite_eq_right (by omega), ite_eq_right (fun h => hnp h.1)]
+    rw [proofOfFull, hw]
     simp only [ite_true, holds_y]
 
 /-- **Soundness.** A proof that `lookup` accepts for a key under the root of a `WellFormed`
@@ -1349,6 +1603,11 @@ def stateRoot (S : State) : Bytes := root (secure accountRlp S)
 `proofOf` of `a`'s Keccak-256. -/
 def accountProof (S : State) (a : Bytes) : Bytes := proofOf (secure accountRlp S) (keccak a)
 
+/-- The proof of the address `a` when inline nodes on the path are also listed as items (as
+anvil's `eth_getProof` returns). -/
+def accountProofFull (S : State) (a : Bytes) : Bytes :=
+  proofOfFull (secure accountRlp S) (keccak a)
+
 /-- A valid account has an RLP encoding, nonempty and shorter than 2^32 bytes. -/
 theorem accountRlp_valid {a : Account} (ha : AccountValid a) :
     encodeTree (.branch [.leaf (be a.nonce), .leaf (be a.balance), .leaf a.storageRoot,
@@ -1436,6 +1695,30 @@ theorem account_complete {S : State} (hS : ∀ p ∈ S, AccountValid p.2) {a : B
     | some p => exact accountRlp_ok (ha' p hf)
   · exact Or.inr hc
 
+/-- **Accounts, completeness for full proofs.** `account` also accepts `accountProofFull S a`. -/
+theorem account_complete_full {S : State} (hS : ∀ p ∈ S, AccountValid p.2) {a : Bytes}
+    (ha : AccountOk (accountAt S a)) :
+    account (stateRoot S) a (accountProofFull S a) = some (accountAt S a) ∨
+      IsCollision (clash S a) := by
+  have ha' : ∀ p, S.find? (fun p => decide (p.1 = a)) = some p → AccountOk p.2 := by
+    intro p hf
+    have : accountAt S a = p.2 := by unfold accountAt; rw [hf]
+    exact this ▸ ha
+  rcases get_secure accountRlp S a with hg | hc
+  · left
+    have hw : WellFormed (secure accountRlp S) :=
+      wellFormed_secure fun p hp => (accountRlp_valid (hS p hp)).2
+    unfold account
+    have hkl : (keccak a).length ≤ maxKey := by simp [keccak_length, maxKey]
+    rw [stateRoot, accountProofFull, lookup_complete_full hw hkl, hg]
+    unfold get accountAt
+    rw [List.find?_map]
+    simp only [Function.comp_def]
+    cases hf : S.find? (fun p => decide (p.1 = a)) with
+    | none => rfl
+    | some p => exact accountRlp_ok (ha' p hf)
+  · exact Or.inr hc
+
 /-- **Accounts, soundness.** In a state `S` of `AccountValid` accounts, an account that
 `account` reads from any proof under `S`'s state root is the account at `a`, or `clash S a` is
 a Keccak-256 collision, or the two byte strings `collision` computes from the root,
@@ -1492,9 +1775,15 @@ def slotAt (T : Storage) (slot : Bytes) : Nat :=
 def storageRoot (T : Storage) : Bytes := root (secure slotRlp T)
 
 /-- The proof of `slot`, as geth's `eth_getProof` returns it (a `storageProof`'s `proof`),
-`proofOf` of the slot's Keccak-256. anvil (1.5.1) also lists the inline nodes on the path as items,
-a proof `lookup` refuses; for an empty storage geth sends nothing, which `lookup_empty` accepts. -/
+`proofOf` of the slot's Keccak-256. anvil (1.5.1) also lists the inline nodes on the path as items
+(`storageProofFull`), which `lookup` accepts too; for an empty storage geth sends nothing, which
+`lookup_empty` accepts. -/
 def storageProof (T : Storage) (slot : Bytes) : Bytes := proofOf (secure slotRlp T) (keccak slot)
+
+/-- The proof of `slot` when inline nodes on the path are also listed as items (as anvil's
+`eth_getProof` returns). -/
+def storageProofFull (T : Storage) (slot : Bytes) : Bytes :=
+  proofOfFull (secure slotRlp T) (keccak slot)
 
 theorem slotRlp_ok {x : Nat} (h0 : 0 < x) (hx : x < 2 ^ 256) :
     slotOf (slotRlp x) = some x ∧ slotRlp x ≠ [] ∧ (slotRlp x).length < 2 ^ 32 := by
@@ -1520,6 +1809,28 @@ theorem storage_complete {T : Storage} (hT : StorageOk T) (slot : Bytes) :
       wellFormed_secure fun p hp => (slotRlp_ok (hT p hp).1 (hT p hp).2).2
     unfold storage
     rw [storageRoot, storageProof, lookup_complete hw (by simp [keccak_length, maxKey]), hg]
+    unfold get slotAt
+    rw [List.find?_map]
+    simp only [Function.comp_def]
+    cases hf : T.find? (fun p => decide (p.1 = slot)) with
+    | none => rfl
+    | some p =>
+      have hp := hT p (List.mem_of_find?_eq_some hf)
+      exact (slotRlp_ok hp.1 hp.2).1
+  · exact Or.inr hc
+
+/-- **Storage, completeness for full proofs.** `storage` also accepts `storageProofFull T slot`
+(including `< 32`-byte inline nodes on the path, as anvil's `eth_getProof` returns). -/
+theorem storage_complete_full {T : Storage} (hT : StorageOk T) (slot : Bytes) :
+    storage (storageRoot T) slot (storageProofFull T slot) = some (slotAt T slot) ∨
+      IsCollision (clash T slot) := by
+  rcases get_secure slotRlp T slot with hg | hc
+  · left
+    have hw : WellFormed (secure slotRlp T) :=
+      wellFormed_secure fun p hp => (slotRlp_ok (hT p hp).1 (hT p hp).2).2
+    unfold storage
+    have hkl : (keccak slot).length ≤ maxKey := by simp [keccak_length, maxKey]
+    rw [storageRoot, storageProofFull, lookup_complete_full hw hkl, hg]
     unfold get slotAt
     rw [List.find?_map]
     simp only [Function.comp_def]
@@ -1589,11 +1900,11 @@ open Common (ascii) in
   [0x28, 0x55, 0x05, 0xfc, 0xab, 0xe8, 0x4b, 0xad, 0xc8, 0xaa, 0x31, 0x0e, 0x2a, 0xae, 0x17, 0xed,
     0xdc, 0x7d, 0x12, 0x0a, 0xab, 0xec, 0x8a, 0x47, 0x69, 0x02, 0xc8, 0x18, 0x4b, 0x3a, 0x35, 0x03]
 
-/- A storage with an inline node on a slot's path, found by the second review on anvil 1.5.1:
+/- A storage with an inline node on a slot's path (anvil 1.5.1):
 slots 468858 and 1452710, holding 1 and 2, whose Keccak-256 share 10 leading nibbles. Below the
-extension and the branch, each slot's leaf is 30 bytes, inline in the branch. The model's proof
-of 468858, geth's, is the extension and the branch, and `storage` reads 1 from it; anvil's lists
-the inline leaf as a third item, which `storage` refuses. -/
+extension and the branch, each slot's leaf is 30 bytes, inline in the branch. Geth's proof of
+468858 is the extension and the branch; anvil's also lists the inline leaf as a third item
+(`storageProofFull`). `storage` reads 1 from both, and rejects an unrelated trailing item. -/
 open Common (word) in
 #guard (nibbles (keccak (word 468858))).take 10 == (nibbles (keccak (word 1452710))).take 10 &&
   (nibbles (keccak (word 468858)))[10]? != (nibbles (keccak (word 1452710)))[10]? &&
@@ -1605,8 +1916,12 @@ open Common (word) in
 
 open Common (word) in
 #guard storage (storageRoot [(word 468858, 1), (word 1452710, 2)]) (word 468858)
+  (storageProofFull [(word 468858, 1), (word 1452710, 2)] (word 468858)) == some 1
+
+open Common (word) in
+#guard storage (storageRoot [(word 468858, 1), (word 1452710, 2)]) (word 468858)
   (storageProof [(word 468858, 1), (word 1452710, 2)] (word 468858) ++
-    rlp (compose [(nibbles (keccak (word 468858)), slotRlp 1)] 11)) == none
+    rlp (compose [(nibbles (keccak (word 1452710)), slotRlp 2)] 11)) == none
 
 /- The state roots of `ethereum/tests`' `TrieTests/hex_encoded_securetrie_test.json`: accounts at
 addresses, keyed by Keccak-256, each value an account's RLP (`accountRlp`). -/
