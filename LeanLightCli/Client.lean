@@ -120,18 +120,13 @@ def updatesFrom (cfg : Config) (sy : Synced) (bs : ByteArray) : IO Synced := do
     sy ← receive cfg sy .update (.digest ch.digest) ch.ssz
   return sy
 
-/-- Bootstrap, then updates up to the clock's period, then the finality and optimistic updates.
-The bootstrap, the clock period's update and the finality and optimistic updates are fetched
-together, in one round trip (`getSszMany`); older periods' updates, when the checkpoint is older
-than the clock's period, after the bootstrap. The store takes them in the specification's order. -/
-def sync (cfg : Config) : IO Synced := do
-  let root ← checkpointOf cfg
-  let cur ← currentPeriod cfg.chain
+/-- From a store: updates for the periods before the clock's `cur`, the clock period's
+(`got[i]`) when the store lacks the next committee, then the finality and optimistic updates
+(`got[i+1]`, `got[i+2]`). The store takes them in the specification's order. -/
+def advance (cfg : Config) (sy : Synced) (cur : Nat)
+    (got : Array (Except String (ByteArray × Option String))) (i : Nat) : IO Synced := do
   let lc := s!"{cfg.consensus}/eth/v1/beacon/light_client"
-  let got ← getSszMany #[s!"{lc}/bootstrap/{toHex root}", s!"{lc}/updates?start_period={cur}&count=1",
-    s!"{lc}/finality_update", s!"{lc}/optimistic_update"]
-  let (bbs, bv) ← orDie "bootstrap" (got[0]?.getD (.error "missing answer"))
-  let mut sy : Synced := { store := ← bootstrapOf cfg root bbs bv }
+  let mut sy := sy
   -- periods before the clock's
   let mut guard := 0
   while Store.period cfg.chain sy.store < cur do
@@ -145,14 +140,52 @@ def sync (cfg : Config) : IO Synced := do
     if (Store.period cfg.chain sy.store, sy.store.next.isSome) == before then break
   -- the clock's period, for its next committee
   if sy.store.next.isNone then
-    match got[1]?.getD (.error "missing answer") with
+    match got[i]?.getD (.error "missing answer") with
     | .ok (bs, _) => sy ← updatesFrom cfg sy bs
     | .error e => log s!"updates for period {cur}: {e}"
-  for (k, path, i) in [(Codec.Kind.finality, "finality_update", 2), (.optimistic, "optimistic_update", 3)] do
-    let (bs, version) ← orDie path (got[i]?.getD (.error "missing answer"))
+  for (k, path, j) in [(Codec.Kind.finality, "finality_update", i + 1), (.optimistic, "optimistic_update", i + 2)] do
+    let (bs, version) ← orDie path (got[j]?.getD (.error "missing answer"))
     let some fork := version.bind forkOfName | die s!"{path}: fork {version} unknown"
     sy ← receive cfg sy k (.name fork) bs
   return sy
+
+/-- The clock period's update and the finality and optimistic updates, in one round trip. -/
+def headUrls (cfg : Config) (cur : Nat) : Array String :=
+  let lc := s!"{cfg.consensus}/eth/v1/beacon/light_client"
+  #[s!"{lc}/updates?start_period={cur}&count=1", s!"{lc}/finality_update", s!"{lc}/optimistic_update"]
+
+/-- Bootstrap, then updates up to the clock's period, then the finality and optimistic updates.
+The bootstrap, the clock period's update and the finality and optimistic updates are fetched
+together, in one round trip (`getSszMany`); older periods' updates, when the checkpoint is older
+than the clock's period, after the bootstrap. -/
+def sync (cfg : Config) : IO Synced := do
+  let root ← checkpointOf cfg
+  let cur ← currentPeriod cfg.chain
+  let lc := s!"{cfg.consensus}/eth/v1/beacon/light_client"
+  let got ← getSszMany (#[s!"{lc}/bootstrap/{toHex root}"] ++ headUrls cfg cur)
+  let (bbs, bv) ← orDie "bootstrap" (got[0]?.getD (.error "missing answer"))
+  advance cfg { store := ← bootstrapOf cfg root bbs bv } cur got 1
+
+/-- The store kept after `sync`: one `advance` from the clock's period's and the head's updates. -/
+def refresh (cfg : Config) (sy : Synced) : IO Synced := do
+  let cur ← currentPeriod cfg.chain
+  advance cfg sy cur (← getSszMany (headUrls cfg cur)) 0
+
+/-- After `sync`, the store kept, as Helios runs: once a slot, 4 s in (when the beacon node has
+the previous slot's signatures), `refresh`, and `onHead` each time the anchor moves to another
+slot. A round that fails (the network, an answer that does not decode) is reported and the next
+slot's tried; the store only ever changes through `Driver.feed`. Stops when the store halts. -/
+partial def follow (cfg : Config) (sy : Synced) (last : Option Nat) (onHead : Synced → IO Unit) :
+    IO Unit := do
+  let now ← nowMs
+  let wake := cfg.chain.slotTime (cfg.chain.slotOf now + 1) + 4000
+  IO.sleep (wake - now).toUInt32
+  timing.set {}
+  let sy ← try refresh cfg sy catch e => do IO.eprintln s!"follow: {e}"; pure sy
+  if sy.store.halted.isSome then die "the store halted: two conflicting updates were signed"
+  let slot := (Store.anchored cfg.chain sy.store (← nowMs)).map (·.header.beacon.slot)
+  if slot.isSome && slot != last then onHead sy
+  follow cfg sy (slot.orElse fun _ => last) onHead
 
 /-! ## The RPC answers a batch prefetched -/
 

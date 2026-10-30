@@ -159,6 +159,7 @@ leanlight [--network mainnet|sepolia] --consensus-rpc URL --execution-rpc URL \
 | Command | Prints |
 |---|---|
 | `sync` | the finalized and anchored slots, what was fetched and how long checking took |
+| `follow` | `sync`, then the store kept: each new head as it is verified, once a slot, with its execution block bound when `--execution-rpc` is given (Ctrl-C stops) |
 | `block-number` | the anchored execution block's number |
 | `balance ADDR`, `nonce ADDR` | the account's, from its proof |
 | `code ADDR` | the proved code hash, the code accepted only if it hashes to it |

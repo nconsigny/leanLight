@@ -10,6 +10,8 @@ leanlight [--network mainnet|sepolia] --consensus-rpc URL [--execution-rpc URL]
 --execution-rpc is required by every command but `sync`.
 COMMAND:
   sync                    sync and print the finalized and anchored heads
+  follow                  sync, then keep the store and print each new head as it is verified
+                          (with --execution-rpc, the anchored execution block too); Ctrl-C stops
   block-number            the anchored execution block's number
   balance ADDR            the account's balance (wei), proved
   nonce ADDR              the account's nonce, proved
@@ -71,7 +73,7 @@ partial def parseArgs : List String → Args → Except String Args
 
 def usage : String :=
   "usage: leanlight [--network mainnet|sepolia] --consensus-rpc URL [--execution-rpc URL] " ++
-  "(--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--json] [-v] (sync | block-number | balance ADDR | nonce ADDR | " ++
+  "(--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--json] [-v] (sync | follow | block-number | balance ADDR | nonce ADDR | " ++
   "code ADDR | storage ADDR SLOT... | queries FILE | record DIR [FILE]); --execution-rpc is required but for sync"
 
 /-! ## Reads, checked before anything is fetched -/
@@ -123,6 +125,8 @@ def jn (n : Nat) : Json := .num (toString n)
 
 def emit (json : Bool) (fields : List (String × Json)) (text : String) : IO Unit := do
   if json then IO.println (Json.mkObj fields).compress else IO.println text
+  -- `follow` prints until it is stopped: each line as it comes
+  (← IO.getStdout).flush
 
 /-- One read at the anchored block: its JSON fields and its text line. -/
 def runQuery (cfg : Config) (b : Anchored) : Query → IO (List (String × Json) × String)
@@ -167,11 +171,13 @@ def timingText (ms : Nat) (t : Timing) : String :=
 line's, or why it does not parse). -/
 inductive Command where
   | sync
+  | follow
   | one (q : Query)
   | many (lines : List (String × Except String Query))
 
 def parseCommand : List String → IO (Except String Command)
   | [] | ["sync"] => pure (.ok .sync)
+  | ["follow"] => pure (.ok .follow)
   | ["queries", file] => do
     let lines ← try (pure (Except.ok (← IO.FS.lines file))) catch e => pure (.error s!"{file}: {e}")
     return lines.map fun ls =>
@@ -233,7 +239,7 @@ def main (argv : List String) : IO UInt32 := do
     | .ok c => pure c
     | .error e => return ← fail e
   let execution := args.execution.getD ""
-  if execution.isEmpty && !(command matches .sync) then
+  if execution.isEmpty && !(command matches .sync | .follow) then
     return ← fail "--execution-rpc is required to read"
   let cfg : Config := {
     chain := chain
@@ -253,6 +259,28 @@ def main (argv : List String) : IO UInt32 := do
       s!"synced: finalized slot {s.finalized.beacon.slot}, anchor slot {anchor.getD 0}, {sy.updates} updates ({sy.accepted} accepted{if sy.refused.isEmpty then "" else s!", refused: {sy.refused.reverse}"}) in {timingText ms t}"
     match command with
     | .sync => pure ()
+    | .follow =>
+      -- each head the store verifies; its execution block bound when there is an endpoint
+      let onHead (sy : Synced) : IO Unit := do
+        let s := sy.store
+        let some a := Store.anchored cfg.chain s (← nowMs) | pure ()
+        let slot := a.header.beacon.slot
+        let head := [("phase", Json.str "head"), ("anchor_slot", jn slot),
+          ("finalized_slot", jn s.finalized.beacon.slot)]
+        let text := s!"head: slot {slot}, finalized slot {s.finalized.beacon.slot}"
+        if execution.isEmpty then emit args.json head text
+        else
+          try
+            let b ← anchoredBlock cfg s
+            -- the round's: the updates fetched and verified, then the block bound
+            let t ← timing.get
+            emit args.json (head ++ [("block", jn b.el.number), ("hash", Json.str (toHex b.hash)),
+                ("net_ms", jn t.netMs), ("verify_ms", jn t.verifyMs)])
+              s!"{text}, block {b.el.number} {toHex b.hash} [network {t.netMs} ms, verify {t.verifyMs} ms]"
+          catch e =>
+            emit args.json (head ++ [("error", Json.str (toString e))]) s!"{text}, block: error: {e}"
+      onHead sy
+      follow cfg sy (s.anchor.map (·.header.beacon.slot)) onHead
     | .many lines =>
       let qs := lines.filterMap fun (_, q) => q.toOption
       -- the block's header and every read's proofs and code, in one JSON-RPC batch
