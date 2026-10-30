@@ -51,6 +51,7 @@ structure Config where
   consensus : String
   execution : String
   checkpoint : Option ByteArray := none
+  unsafeUntrustedCheckpoint : Bool := false
 
 /-- What a sync did. -/
 structure Synced where
@@ -65,15 +66,25 @@ def orDie {α} (what : String) : Except String α → IO α
   | .ok a => pure a
   | .error e => die s!"{what}: {e}"
 
-/-- The checkpoint: the one given, else the beacon node's finalized root (trust on first use, as
-Helios does without a checkpoint). -/
+/-- Parse the finalized header response's root and check it is 32 bytes. -/
+def finalizedRootOf (j : Json) : Except String ByteArray := do
+  let root ← (← (← j.getObjVal? "data").getObjVal? "root").getStr?
+  match hexBytes root with
+  | some r =>
+    if r.size != 32 then throw "root is not 32 bytes"
+    pure r
+  | none => throw "bad root"
+
+/-- The checkpoint: the one given, else (with `--unsafe-untrusted-checkpoint`) the beacon node's
+finalized root (trust on first use). -/
 def checkpointOf (cfg : Config) : IO ByteArray := do
   if let some c := cfg.checkpoint then return c
+  unless cfg.unsafeUntrustedCheckpoint do
+    die "no checkpoint: pass --checkpoint 0xROOT, or --unsafe-untrusted-checkpoint to trust the beacon node's finalized root"
   let j ← orDie "finalized header" (← getJson s!"{cfg.consensus}/eth/v1/beacon/headers/finalized")
-  let root ← orDie "finalized header" do (← (← j.getObjVal? "data").getObjVal? "root").getStr?
-  match hexBytes root with
-  | some r => IO.eprintln s!"checkpoint (the node's finalized root, unchecked): {root}"; return r
-  | none => die "finalized header: bad root"
+  let r ← orDie "finalized header" (finalizedRootOf j)
+  IO.eprintln s!"checkpoint (the node's finalized root, unchecked): {toHex r}"
+  return r
 
 def bootstrapOf (cfg : Config) (root : ByteArray) (bs : ByteArray) (version : Option String) :
     IO Store.Store := do
@@ -119,7 +130,7 @@ def sync (cfg : Config) : IO Synced := do
   let lc := s!"{cfg.consensus}/eth/v1/beacon/light_client"
   let got ← getSszMany #[s!"{lc}/bootstrap/{toHex root}", s!"{lc}/updates?start_period={cur}&count=1",
     s!"{lc}/finality_update", s!"{lc}/optimistic_update"]
-  let (bbs, bv) ← orDie "bootstrap" got[0]!
+  let (bbs, bv) ← orDie "bootstrap" (got[0]?.getD (.error "missing answer"))
   let mut sy : Synced := { store := ← bootstrapOf cfg root bbs bv }
   -- periods before the clock's
   let mut guard := 0
@@ -134,11 +145,11 @@ def sync (cfg : Config) : IO Synced := do
     if (Store.period cfg.chain sy.store, sy.store.next.isSome) == before then break
   -- the clock's period, for its next committee
   if sy.store.next.isNone then
-    match got[1]! with
+    match got[1]?.getD (.error "missing answer") with
     | .ok (bs, _) => sy ← updatesFrom cfg sy bs
     | .error e => log s!"updates for period {cur}: {e}"
   for (k, path, i) in [(Codec.Kind.finality, "finality_update", 2), (.optimistic, "optimistic_update", 3)] do
-    let (bs, version) ← orDie path got[i]!
+    let (bs, version) ← orDie path (got[i]?.getD (.error "missing answer"))
     let some fork := version.bind forkOfName | die s!"{path}: fork {version} unknown"
     sy ← receive cfg sy k (.name fork) bs
   return sy
@@ -196,10 +207,11 @@ def headerFields : List (String × Bool) :=
    ("excessBlobGas", true), ("parentBeaconBlockRoot", false), ("requestsHash", false),
    ("blockAccessListHash", false), ("slotNumber", true)]
 
-/-- The RLP of a block's header, rebuilt from `eth_getBlockByHash`'s fields. Untrusted:
-`Anchor.bind` checks it hashes to the anchored block hash. -/
+/-- The RLP of a block's header, rebuilt from `eth_getBlockByHash`'s fields via
+`Spec.Header.encodeFieldsB` (`Spec.Header.decodeB_encodeFieldsB`). Untrusted: `Anchor.bind` checks
+it hashes to the anchored block hash. -/
 def headerRlp (block : Json) : Except String ByteArray := do
-  let mut payload : List UInt8 := []
+  let mut fields : List Spec.Rlp.Bytes := []
   for (name, quantity) in headerFields do
     match block.getObjVal? name with
     | .error _ => break
@@ -213,12 +225,10 @@ def headerRlp (block : Json) : Except String ByteArray := do
           match hexBytes s with
           | some b => pure b.data.toList
           | none => throw s!"{name}: not hex"
-      match Spec.Rlp.encodeBytes field with
-      | some e => payload := payload ++ e
-      | none => throw s!"{name}: too long"
-  match Spec.Rlp.encodeList payload with
-  | some e => return ⟨e.toArray⟩
-  | none => throw "header too long"
+      fields := fields ++ [field]
+  match Spec.Header.encodeFieldsB fields with
+  | some e => return e
+  | none => throw "header: unknown fork or malformed field"
 
 /-- An `eth_getProof` proof's nodes, joined in order as `Mpt.lookup` reads them. -/
 def proofNodes (items : Json) : Except String ByteArray := do
@@ -231,9 +241,8 @@ def proofNodes (items : Json) : Except String ByteArray := do
 
 /-- The anchored block: its beacon header and the EL header's RLP, bound. -/
 structure Anchored where
-  /-- The store and the clock the anchor was read at: reads use the same. -/
+  /-- The store: each read checks freshness against a live clock (`nowMs`). -/
   store : Store.Store
-  now : Nat
   beacon : Store.Header
   rlp : ByteArray
   el : Spec.Header.Header
@@ -246,9 +255,10 @@ def anchoredBlock (cfg : Config) (s : Store.Store) : IO Anchored := do
   let (m, ps) := blockCall hash
   let block ← orDie "eth_getBlockByHash" (← rpcC cfg.execution m ps)
   let rlp ← orDie "header" (headerRlp block)
+  let now ← nowMs
   timeVerify do
     match Driver.bindAnchor cfg.chain s now rlp with
-    | some (b, h) => pure { store := s, now, beacon := b, rlp, el := h, hash }
+    | some (b, h) => pure { store := s, beacon := b, rlp, el := h, hash }
     | none => die "header: the endpoint's block does not match the anchored execution block"
 
 /-- What a verified read says. -/
@@ -267,8 +277,9 @@ def readAccount (cfg : Config) (b : Anchored) (addr : ByteArray) (slots : List B
   for (k, p) in slots.zip sp.toList do
     let ns ← orDie "storage proof" do proofNodes (← p.getObjVal? "proof")
     pairs := pairs ++ [(k.data.toList, ns)]
+  let now ← nowMs
   timeVerify do
-    match Driver.read cfg.chain b.store b.now b.rlp addr.data.toList nodes pairs with
+    match Driver.read cfg.chain b.store now b.rlp addr.data.toList nodes pairs with
     | some (_, acct, vs) => pure { account := acct, slots := vs }
     | none => die "eth_getProof: the proof does not prove the account under the anchored state root"
 

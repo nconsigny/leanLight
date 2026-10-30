@@ -42,7 +42,7 @@ def hexBytes (s : String) : Option ByteArray := Id.run do
 def hexNat (s : String) : Option Nat :=
   (strip0x s).toList.foldlM (fun acc c => (hexVal c).map (acc * 16 + ·)) 0
 
-def hexDigit (n : Nat) : Char := "0123456789abcdef".toList[n % 16]!
+def hexDigit (n : Nat) : Char := Json.hexNib n
 
 def toHex (bs : ByteArray) : String :=
   bs.foldl (fun s b => (s.push (hexDigit (b.toNat / 16))).push (hexDigit (b.toNat % 16))) "0x"
@@ -65,7 +65,9 @@ def nowMs : IO Nat := do
   | some (wall, mono) => return wall + (← IO.monoMsNow) - mono
   | none =>
     let out ← IO.Process.output { cmd := "date", args := #["+%s%3N"] }
-    let wall := out.stdout.trimAscii.toString.toNat!
+    if out.exitCode != 0 then throw (IO.userError s!"date: {out.stderr.trimAscii}")
+    let some wall := out.stdout.trimAscii.toString.toNat?
+      | throw (IO.userError s!"date: unexpected output: {out.stdout.trimAscii}")
     wallBase.set (some (wall, ← IO.monoMsNow))
     return wall
 
@@ -200,16 +202,20 @@ def getSszMany (urls : Array String) : IO (Array (Except String (ByteArray × Op
   let mut args : Array String := #["-sS", "--max-time", "60", "--parallel", "--parallel-immediate",
     "-H", "Accept: application/octet-stream",
     "-w", "%{urlnum} %{http_code} %header{eth-consensus-version}\n"]
-  for i in [0:urls.size] do
-    log s!"GET {urls[i]!} (ssz, batch {i})"
-    args := args ++ #["-o", (d / s!"body{i}").toString, urls[i]!]
+  for h : i in [0:urls.size] do
+    log s!"GET {urls[i]} (ssz, batch {i})"
+    args := args ++ #["-o", (d / s!"body{i}").toString, urls[i]]
   timeNet do
     let out ← IO.Process.output { cmd := "curl", args }
     let codes : Std.HashMap Nat (String × Option String) :=
       out.stdout.splitOn "\n" |>.foldl (init := {}) fun m l =>
         match l.trimAscii.toString.splitOn " " with
-        | [n, c] => m.insert n.toNat! (c, none)
-        | [n, c, v] => m.insert n.toNat! (c, some v.toLower)
+        | [n, c] => match n.toNat? with
+          | some k => m.insert k (c, none)
+          | none => m
+        | [n, c, v] => match n.toNat? with
+          | some k => m.insert k (c, some v.toLower)
+          | none => m
         | _ => m
     let mut res := #[]
     let mut size := 0
@@ -245,10 +251,11 @@ def rpcBatchOnce (url : String) (calls : Array (String × Json)) :
       for it in items do
         match (it.getObjVal? "id" >>= Json.getNat?) with
         | .ok i =>
-          if i < calls.size then
-            res := res.set! i <| match it.getObjVal? "result" with
+          if h : i < calls.size then
+            let ans := match it.getObjVal? "result" with
               | .ok r => .ok r
-              | .error _ => .error s!"{calls[i]!.1}: {(it.getObjValD "error").compress}"
+              | .error _ => .error s!"{calls[i].1}: {(it.getObjValD "error").compress}"
+            if hr : i < res.size then res := res.set i ans
         | .error _ => pure ()
       return (.ok res, size)
     | .ok j => return (.error s!"batch: not an array: {(j.compress.take 200).toString}", size)
@@ -259,12 +266,20 @@ def rpcBatch (url : String) (calls : Array (String × Json)) :
     IO (Array (Except String Json)) := do
   let mut res : Array (Except String Json) := Array.replicate calls.size (.error "no attempt")
   for attempt in [0:3] do
-    let todo := (List.range calls.size).filter fun i => !(res[i]! matches .ok _)
+    let todo := (List.range calls.size).filterMap fun i =>
+      match res[i]?, calls[i]? with
+      | some (.ok _), _ => none
+      | _, some c => some (i, c)
+      | _, none => none
     if todo.isEmpty then break
     if attempt > 0 then IO.sleep 250
-    match ← rpcBatchOnce url (todo.toArray.map (calls[·]!)) with
-    | .error e => for i in todo do res := res.set! i (.error e)
-    | .ok rs => for (i, r) in todo.zip rs.toList do res := res.set! i r
+    match ← rpcBatchOnce url (todo.toArray.map (·.2)) with
+    | .error e =>
+      for (i, _) in todo do
+        if hr : i < res.size then res := res.set i (.error e)
+    | .ok rs =>
+      for ((i, _), r) in todo.zip rs.toList do
+        if hr : i < res.size then res := res.set i r
   return res
 
 /-- A string field. -/

@@ -5,8 +5,9 @@ its machine-checked proofs are about. It follows mainnet or Sepolia from a check
 signatures of the sync committee, SSZ Merkle branches), then answers execution-layer reads
 (balances, nonces, code, storage) by checking `eth_getProof` proofs against the state root of a
 block its own verified beacon header names. Nothing an RPC endpoint says is believed until the
-light client has checked it, with two exceptions this README names: the checkpoint when you give
-none, and which addresses the endpoint learns you read ([Trust model](#trust-model)).
+light client has checked it, with two exceptions this README names: the checkpoint when you opt in
+with `--unsafe-untrusted-checkpoint`, and which addresses the endpoint learns you read
+([Trust model](#trust-model)).
 
 It is research software: young, without an outside audit, and not yet something to trust with
 funds on its own word.
@@ -113,10 +114,10 @@ participants' sum on a consistent committee (`signersKey?_eq`).
   proved.
 - `curl`, the operating system and the clock: a clock set back can make an old checkpoint look
   fresh (`docs/spec-16-light-client.md`, "The clock").
-- **The checkpoint, when you give none.** Without `--checkpoint`, leanlight takes the beacon
-  node's finalized root on trust, as Helios does without one, and says so on standard error.
-  Everything after is checked against that root: give a checkpoint you got elsewhere (a block
-  explorer, another node, a friend) to remove that trust.
+- **The checkpoint, when you opt in to fetching one.** With `--unsafe-untrusted-checkpoint`
+  instead of `--checkpoint`, leanlight takes the beacon node's finalized root on trust and says so
+  on standard error. Everything after is checked against that root: give `--checkpoint` with a root
+  you got elsewhere (a block explorer, another node, a friend) to remove that trust.
 
 ## Privacy
 
@@ -144,7 +145,7 @@ scripts/check-axioms.sh && scripts/check-kernel.sh
 
 ```sh
 leanlight [--network mainnet|sepolia] --consensus-rpc URL --execution-rpc URL \
-          [--checkpoint 0xROOT] [--json] [-v] COMMAND
+          (--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--json] [-v] COMMAND
 ```
 
 | Command | Prints |
@@ -158,13 +159,13 @@ leanlight [--network mainnet|sepolia] --consensus-rpc URL --execution-rpc URL \
 | `record DIR [FILE]` | a run (and `FILE`'s reads) recorded for the offline tests and benchmark, after checking it |
 
 The beacon node must serve the light-client API in SSZ (Nimbus and Lodestar do; publicnode's
-beacon API serves JSON only). Without `--checkpoint`, the node's finalized root is taken on
-trust, as Helios does without one; give a checkpoint you got elsewhere to remove that trust.
-Example:
+beacon API serves JSON only). Pass `--checkpoint 0xROOT` with a root you got elsewhere, or
+`--unsafe-untrusted-checkpoint` to take the node's finalized root on trust. Example:
 
 ```sh
 leanlight --consensus-rpc http://testing.mainnet.beacon-api.nimbus.team \
   --execution-rpc https://ethereum-rpc.publicnode.com \
+  --unsafe-untrusted-checkpoint \
   balance 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 ```
 

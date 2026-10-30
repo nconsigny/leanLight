@@ -29,9 +29,9 @@ def forkName : Forks.ForkName → String
   | .fulu => "fulu"
   | .gloas => "gloas"
 
-/-- Writes a recording of a run against `cfg` to `dir`: the store from `cfg`'s checkpoint (or the
-node's finalized root) through every period up to the clock's, the anchored block, and each of
-`queries`' calls at it. -/
+/-- Writes a recording of a run against `cfg` to `dir`: the store from `cfg`'s checkpoint (or, when
+`cfg.unsafeUntrustedCheckpoint` is set, the node's finalized root) through every period up to the
+clock's, the anchored block, and each of `queries`' calls at it. -/
 def record (cfg : Config) (dir : System.FilePath)
     (queries : List (String × (ByteArray → List (String × Json)))) : IO Unit := do
   IO.FS.createDirAll dir

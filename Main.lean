@@ -5,7 +5,7 @@ import LeanLightCli.Record
 
 ```
 leanlight [--network mainnet|sepolia] --consensus-rpc URL [--execution-rpc URL]
-          [--checkpoint 0xROOT] [--json] [-v] COMMAND
+          (--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--json] [-v] COMMAND
 
 --execution-rpc is required by every command but `sync`.
 COMMAND:
@@ -36,6 +36,7 @@ structure Args where
   consensus : Option String := none
   execution : Option String := none
   checkpoint : Option String := none
+  unsafeUntrustedCheckpoint : Bool := false
   json : Bool := false
   verbose : Bool := false
   rest : List String := []
@@ -47,6 +48,8 @@ partial def parseArgs : List String → Args → Except String Args
   | [], a => pure { a with rest := a.rest.reverse }
   | [o], a =>
     if valued.contains o then throw s!"{o} needs a value"
+    else if o == "--unsafe-untrusted-checkpoint" then
+      pure { a with unsafeUntrustedCheckpoint := true, rest := a.rest.reverse }
     else if o == "--json" then pure { a with json := true, rest := a.rest.reverse }
     else if o == "-v" then pure { a with verbose := true, rest := a.rest.reverse }
     else if o.startsWith "-" then throw s!"unknown option {o}"
@@ -59,6 +62,8 @@ partial def parseArgs : List String → Args → Except String Args
         | "--consensus-rpc" => parseArgs r { a with consensus := some v }
         | "--execution-rpc" => parseArgs r { a with execution := some v }
         | _ => parseArgs r { a with checkpoint := some v }
+    else if o == "--unsafe-untrusted-checkpoint" then
+      parseArgs (v :: r) { a with unsafeUntrustedCheckpoint := true }
     else if o == "--json" then parseArgs (v :: r) { a with json := true }
     else if o == "-v" then parseArgs (v :: r) { a with verbose := true }
     else if o.startsWith "-" then throw s!"unknown option {o}"
@@ -66,7 +71,7 @@ partial def parseArgs : List String → Args → Except String Args
 
 def usage : String :=
   "usage: leanlight [--network mainnet|sepolia] --consensus-rpc URL [--execution-rpc URL] " ++
-  "[--checkpoint 0xROOT] [--json] [-v] (sync | block-number | balance ADDR | nonce ADDR | " ++
+  "(--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--json] [-v] (sync | block-number | balance ADDR | nonce ADDR | " ++
   "code ADDR | storage ADDR SLOT... | queries FILE | record DIR [FILE]); --execution-rpc is required but for sync"
 
 /-! ## Reads, checked before anything is fetched -/
@@ -192,7 +197,9 @@ def main (argv : List String) : IO UInt32 := do
   let some consensus := args.consensus | fail "--consensus-rpc is required"
   let checkpoint ← match args.checkpoint.mapM (hexArg "checkpoint") with
     | .ok (some c) => if c.size == 32 then pure (some c) else return ← fail "checkpoint: not 32 bytes"
-    | .ok none => pure none
+    | .ok none =>
+      if args.unsafeUntrustedCheckpoint then pure none
+      else return ← fail "no checkpoint: pass --checkpoint 0xROOT, or --unsafe-untrusted-checkpoint to trust the beacon node's finalized root"
     | .error e => return ← fail e
   if let "record" :: dir :: rest := args.rest then
     let some exec := args.execution | return ← fail "--execution-rpc is required to record"
@@ -207,7 +214,13 @@ def main (argv : List String) : IO UInt32 := do
       match parseQuery ((l.splitOn " ").filter (· ≠ "")) with
       | .ok q => qs := qs ++ [(l, q)]
       | .error e => return ← fail s!"{l}: {e}"
-    let cfg : Config := { chain, consensus, execution := exec, checkpoint }
+    let cfg : Config := {
+      chain := chain
+      consensus := consensus
+      execution := exec
+      checkpoint := checkpoint
+      unsafeUntrustedCheckpoint := args.unsafeUntrustedCheckpoint
+    }
     try
       -- each read's calls at the block `record` anchors
       Record.record cfg dir (qs.map fun (l, q) => (l, fun hash => callsOf hash q))
@@ -222,7 +235,13 @@ def main (argv : List String) : IO UInt32 := do
   let execution := args.execution.getD ""
   if execution.isEmpty && !(command matches .sync) then
     return ← fail "--execution-rpc is required to read"
-  let cfg : Config := { chain, consensus, execution, checkpoint }
+  let cfg : Config := {
+    chain := chain
+    consensus := consensus
+    execution := execution
+    checkpoint := checkpoint
+    unsafeUntrustedCheckpoint := args.unsafeUntrustedCheckpoint
+  }
   try
     let (sy, ms, t) ← timed (sync cfg)
     let s := sy.store

@@ -28,6 +28,10 @@ instance : Coe Nat Json := ⟨fun n => num (toString n)⟩
 
 def mkObj (kvs : List (String × Json)) : Json := obj kvs.toArray
 
+def hexNib (n : Nat) : Char :=
+  let d := n % 16
+  Char.ofNat (if d < 10 then '0'.toNat + d else 'a'.toNat + (d - 10))
+
 def escape (s : String) : String :=
   s.foldl (init := "\"") (fun acc c =>
     match c with
@@ -37,7 +41,7 @@ def escape (s : String) : String :=
     | '\r' => acc ++ "\\r"
     | '\t' => acc ++ "\\t"
     | c => if c.toNat < 0x20 then acc ++ "\\u00" ++ (if c.toNat < 16 then "0" else "1") ++
-        String.singleton ("0123456789abcdef".toList[c.toNat % 16]!) else acc.push c) ++ "\""
+        String.singleton (hexNib c.toNat) else acc.push c) ++ "\""
 
 partial def compress : Json → String
   | null => "null"

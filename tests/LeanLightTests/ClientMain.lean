@@ -108,6 +108,72 @@ def runFixture (dir : System.FilePath) (other : Option System.FilePath) (t0 : Ta
     | _, _ => t := check t false s!"{tag}: reads.txt: {r.words}"
   return t
 
+def runCliHardeningChecks (t0 : Tally) : IO Tally := do
+  let mut t := t0
+  -- checkpointOf refuses to fetch an untrusted finalized root unless explicitly opted in.
+  let cfgSafe : Config := {
+    chain := Forks.mainnet
+    consensus := "http://127.0.0.1:0"
+    execution := "http://127.0.0.1:0"
+    checkpoint := none
+    unsafeUntrustedCheckpoint := false
+  }
+  let refusedMsg ← try
+      let _ ← checkpointOf cfgSafe
+      pure ""
+    catch e => pure (toString e)
+  t := check t ((refusedMsg.splitOn "--unsafe-untrusted-checkpoint").length > 1)
+    s!"checkpointOf: expected --unsafe-untrusted-checkpoint refusal, got '{refusedMsg}'"
+  -- checkpointOf returns an explicit checkpoint directly without network access.
+  let cp := ByteArray.mk (Array.replicate 32 0xaa)
+  let gotCp ← checkpointOf { cfgSafe with checkpoint := some cp }
+  t := check t (gotCp == cp) "checkpointOf: explicit checkpoint was not returned"
+  -- finalizedRootOf accepts a 32-byte root and rejects wrong-length or non-hex roots.
+  let okJson := Json.obj #[("data", Json.obj #[("root", Json.str (toHex cp))])]
+  t := check t ((finalizedRootOf okJson).toOption == some cp) "finalizedRootOf: valid 32-byte root was refused"
+  let shortJson := Json.obj #[("data", Json.obj #[("root", Json.str "0x0102")])]
+  t := check t (finalizedRootOf shortJson matches .error _)
+    "finalizedRootOf: non-32-byte root was accepted"
+  let badHexJson := Json.obj #[("data", Json.obj #[("root", Json.str "0xzzzz")])]
+  t := check t (finalizedRootOf badHexJson matches .error _)
+    "finalizedRootOf: non-hex root was accepted"
+  -- Header.encodeFieldsB round-trips through Header.decodeB across all forks and rejects malformed shapes.
+  let f ← load "fixtures/mainnet-fresh"
+  let blockJson ← match Json.parse (← IO.FS.readFile (f.dir / "block.json")) with
+    | .ok j => pure j
+    | .error e => throw (IO.userError e)
+  let rlp ← match LeanLight.Cli.headerRlp blockJson with
+    | .ok b => pure b
+    | .error e => throw (IO.userError e)
+  t := check t (LeanLight.Spec.Header.decodeB rlp).isSome "headerRlp: honest block did not decode"
+  let badBlockJson := match blockJson with
+    | .obj kvs => Json.obj (kvs.map fun (k, v) => if k == "nonce" then (k, Json.str "0x0102") else (k, v))
+    | j => j
+  t := check t (LeanLight.Cli.headerRlp badBlockJson matches .error _)
+    "headerRlp: malformed 2-byte nonce in valid-fork block was accepted"
+  let validField (i : Nat) : List UInt8 :=
+    match LeanLight.Spec.Header.shapeOf i with
+    | .exact n => List.replicate n 0x11
+    | .atMost _ => []
+    | .scalar _ => [1]
+  for n in LeanLight.Spec.Header.forks do
+    let fs := (List.range n).map validField
+    let ok := match LeanLight.Spec.Header.encodeFieldsB fs with
+      | some bs => LeanLight.Spec.Header.decodeB bs == some (LeanLight.Spec.Header.headerOf fs)
+      | none => false
+    t := check t ok s!"encodeFieldsB: valid {n}-field header did not round-trip"
+  for n in [14, 15, 18, 22, 24] do
+    let fs := (List.range n).map validField
+    t := check t (LeanLight.Spec.Header.encodeFieldsB fs).isNone
+      s!"encodeFieldsB: unknown fork field count ({n}) was accepted"
+  let badShape := List.replicate 16 ([] : List UInt8)
+  t := check t (LeanLight.Spec.Header.encodeFieldsB badShape).isNone
+    "encodeFieldsB: valid fork count (16) with invalid field widths was accepted"
+  -- Json.escape handles control characters without partial indexing.
+  let escaped := Json.escape (String.ofList [Char.ofNat 0, Char.ofNat 0x1f, 'a'])
+  t := check t (escaped == "\"\\u0000\\u001fa\"") s!"Json.escape: got {escaped}"
+  return t
+
 def main (args : List String) : IO UInt32 := do
   let dirs : List System.FilePath :=
     if args.isEmpty then ["fixtures/mainnet-fresh", "fixtures/mainnet-week"] else args.map System.FilePath.mk
@@ -168,6 +234,7 @@ def main (args : List String) : IO UInt32 := do
       "inline proof: anvil standalone-inline storage proof for slot2 refused"
   | _, _, _, _ =>
     t := check t false "inline proof: proofNodes failed to parse hex items"
+  t ← runCliHardeningChecks t
   for e in t.failed do IO.println s!"FAIL {e}"
   IO.println s!"leanlight-client-test: {t.passed} checks passed, {t.failed.size} failed"
   return if t.failed.isEmpty then 0 else 1
