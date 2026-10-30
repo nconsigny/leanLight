@@ -121,6 +121,14 @@ def scratchDir : IO System.FilePath := do
     scratch.set (some d)
     return d
 
+/-- A file of its own in the scratch directory, named `stem` and a sequence number: requests run
+at once (`firstOf`, `prefetch`), so no two share a file. -/
+initialize fileSeq : IO.Ref Nat ← IO.mkRef 0
+
+def freshFile (stem : String) : IO System.FilePath := do
+  let n ← fileSeq.modifyGet fun n => (n, n + 1)
+  return (← scratchDir) / s!"{stem}{n}"
+
 def cleanup : IO Unit := do
   if let some d := ← scratch.get then
     try IO.FS.removeDirAll d catch _ => pure ()
@@ -128,9 +136,8 @@ def cleanup : IO Unit := do
 /-- A GET asking for SSZ: the body's bytes and the `Eth-Consensus-Version` header, or an error
 with the status. -/
 def getSsz (url : String) : IO (Except String (ByteArray × Option String)) := do
-  let d ← scratchDir
-  let body := d / "body"
-  let hdrs := d / "headers"
+  let body ← freshFile "body"
+  let hdrs ← freshFile "headers"
   log s!"GET {url} (ssz)"
   timeNet do
     let out ← IO.Process.output { cmd := "curl", args := #["-sS", "--max-time", "60",
@@ -165,7 +172,7 @@ def rpcOnce (url method : String) (params : Json) : IO (Except String Json) := d
     ("params", params)]
   log s!"POST {url} {method}"
   timeNet do
-    let reqFile := (← scratchDir) / "request.json"
+    let reqFile ← freshFile "request"
     IO.FS.writeFile reqFile req.compress
     let out ← IO.Process.output { cmd := "curl", args := #["-sS", "--max-time", "60", "-X", "POST",
       "-H", "Content-Type: application/json", "--data-binary", "@" ++ reqFile.toString, url] }
@@ -200,13 +207,13 @@ def consensusVersion (hs : String) : Option String :=
 /-- Several SSZ GETs in one `curl`, transferred in parallel over shared connections: each body
 and its `Eth-Consensus-Version`, in the order asked. -/
 def getSszMany (urls : Array String) : IO (Array (Except String (ByteArray × Option String))) := do
-  let d ← scratchDir
+  let stem ← freshFile "many"
   let mut args : Array String := #["-sS", "--max-time", "60", "--parallel", "--parallel-immediate",
     "-H", "Accept: application/octet-stream",
     "-w", "%{urlnum} %{http_code} %header{eth-consensus-version}\n"]
   for h : i in [0:urls.size] do
     log s!"GET {urls[i]} (ssz, batch {i})"
-    args := args ++ #["-o", (d / s!"body{i}").toString, urls[i]]
+    args := args ++ #["-o", s!"{stem}-{i}", urls[i]]
   timeNet do
     let out ← IO.Process.output { cmd := "curl", args }
     let codes : Std.HashMap Nat (String × Option String) :=
@@ -224,11 +231,11 @@ def getSszMany (urls : Array String) : IO (Array (Except String (ByteArray × Op
     for i in [0:urls.size] do
       match codes[i]? with
       | some ("200", v) =>
-        let bs ← IO.FS.readBinFile (d / s!"body{i}")
+        let bs ← IO.FS.readBinFile s!"{stem}-{i}"
         size := size + bs.size
         res := res.push (.ok (bs, v))
       | some (c, _) =>
-        let b ← (try IO.FS.readFile (d / s!"body{i}") catch _ => pure "")
+        let b ← (try IO.FS.readFile s!"{stem}-{i}" catch _ => pure "")
         res := res.push (.error s!"HTTP {c}: {(b.take 200).toString}")
       | none => res := res.push (.error s!"curl: {out.stderr.trimAscii}")
     return (res, size)
@@ -240,13 +247,18 @@ def rpcBatchOnce (url : String) (calls : Array (String × Json)) :
     [("jsonrpc", "2.0"), ("id", (i : Nat)), ("method", m), ("params", ps)]
   log s!"POST {url} batch of {calls.size}: {calls.map (·.1)}"
   timeNet do
-    let reqFile := (← scratchDir) / "batch.json"
+    let reqFile ← freshFile "batch"
+    let respFile ← freshFile "answer"
     IO.FS.writeFile reqFile req.compress
     let out ← IO.Process.output { cmd := "curl", args := #["-sS", "--max-time", "60", "-X", "POST",
-      "-H", "Content-Type: application/json", "--data-binary", "@" ++ reqFile.toString, url] }
+      "-H", "Content-Type: application/json", "--data-binary", "@" ++ reqFile.toString,
+      "-o", respFile.toString, "-w", "%{http_code}", url] }
     if out.exitCode != 0 then return (.error s!"curl: {out.stderr.trimAscii}", 0)
-    let size := out.stdout.utf8ByteSize
-    match Json.parse out.stdout with
+    let body ← (try IO.FS.readFile respFile catch _ => pure "")
+    let size := body.utf8ByteSize
+    let code := out.stdout.trimAscii.toString
+    if code != "200" then return (.error s!"HTTP {code}: {(body.take 200).toString}", size)
+    match Json.parse body with
     | .error e => return (.error s!"batch: not JSON: {e}", size)
     | .ok (.arr items) =>
       let mut res : Array (Except String Json) := Array.replicate calls.size (.error "no answer")
@@ -262,27 +274,72 @@ def rpcBatchOnce (url : String) (calls : Array (String × Json)) :
       return (.ok res, size)
     | .ok j => return (.error s!"batch: not an array: {(j.compress.take 200).toString}", size)
 
-/-- A JSON-RPC batch, asked again up to twice for the calls that failed (a public endpoint is a
-pool of nodes, one of which may not hold the block yet). -/
+/-- The largest batch each endpoint answered, by URL: a batch it refuses is halved and the size
+kept for the next ones (a free tier answers a dozen proofs at once with HTTP 500). -/
+initialize batchLimit : IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
+
+/-- A JSON-RPC batch: each call's `result` or error, in the order asked. Sent in chunks of the
+endpoint's batch size (`batchLimit`, 32 at first), halved when the endpoint refuses a chunk, with
+a back-off doubling from 250 ms when it says 429 (too many requests); calls that fail are asked
+again, up to eight failures in all (a public endpoint is a pool of nodes, one of which may not
+hold the block yet). -/
 def rpcBatch (url : String) (calls : Array (String × Json)) :
     IO (Array (Except String Json)) := do
   let mut res : Array (Except String Json) := Array.replicate calls.size (.error "no attempt")
-  for attempt in [0:3] do
+  let mut failures := 0
+  let mut backoff := 250
+  for _ in [0:4 * calls.size + 16] do
     let todo := (List.range calls.size).filterMap fun i =>
       match res[i]?, calls[i]? with
       | some (.ok _), _ => none
       | _, some c => some (i, c)
       | _, none => none
-    if todo.isEmpty then break
-    if attempt > 0 then IO.sleep 250
-    match ← rpcBatchOnce url (todo.toArray.map (·.2)) with
+    if todo.isEmpty || failures ≥ 8 then break
+    let limit := ((← batchLimit.get)[url]?).getD 32
+    let chunk := todo.take limit
+    match ← rpcBatchOnce url (chunk.toArray.map (·.2)) with
     | .error e =>
-      for (i, _) in todo do
+      failures := failures + 1
+      for (i, _) in chunk do
         if hr : i < res.size then res := res.set i (.error e)
+      if e.startsWith "HTTP 429" then
+        IO.sleep backoff.toUInt32
+        backoff := 2 * backoff
+      else if chunk.length > 1 && e.startsWith "HTTP" then
+        log s!"  {url}: a batch of {chunk.length} refused ({(e.take 60).toString}), halved"
+        batchLimit.modify (·.insert url (chunk.length / 2))
+      else
+        IO.sleep 250
     | .ok rs =>
-      for ((i, _), r) in todo.zip rs.toList do
+      let mut failed := false
+      for ((i, _), r) in chunk.zip rs.toList do
         if hr : i < res.size then res := res.set i r
+        if !(r matches .ok _) then failed := true
+      if failed then
+        failures := failures + 1
+        IO.sleep 250
   return res
+
+/-- The first of `tasks`, in the order they finish, for which `f` gives a value (none when none
+does). Task `i` answers `(i, a)`; the others go on running. -/
+def firstOf {α β} (tasks : Array (Task (Nat × α))) (f : Nat × α → IO (Option β)) :
+    IO (Option β) := do
+  let mut rest := (List.range tasks.size).zip tasks.toList
+  for _ in [0:tasks.size] do
+    match rest with
+    | [] => break
+    | p :: ps =>
+      let r ← IO.waitAny ((p :: ps).map (·.2))
+      rest := (p :: ps).filter (·.1 != r.1)
+      if let some b ← f r then return some b
+  return none
+
+/-- `act i` for each index of `xs`, each in a task of its own, answering `(i, act i)`. -/
+def spawnEach {α β} (xs : Array α) (act : Nat → α → IO β) (default : β) :
+    BaseIO (Array (Task (Nat × β))) :=
+  xs.mapIdxM fun i x => do
+    let t ← IO.asTask (prio := .dedicated) (act i x)
+    return t.map fun r => (i, match r with | .ok b => b | .error _ => default)
 
 /-- A string field. -/
 def str (j : Json) (k : String) : Except String String := do

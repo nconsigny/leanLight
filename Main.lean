@@ -7,7 +7,8 @@ import LeanLightCli.Record
 leanlight [--network mainnet|sepolia] --consensus-rpc URL [--execution-rpc URL]
           (--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--json] [-v] COMMAND
 
---execution-rpc is required by every command but `sync`.
+--execution-rpc is required by every command but `sync`. Each takes several URLs, separated by
+commas: all are asked at once and the first answer that verifies is used.
 COMMAND:
   sync                    sync and print the finalized and anchored heads
   block-number            the anchored execution block's number
@@ -194,7 +195,10 @@ def main (argv : List String) : IO UInt32 := do
       | "sepolia" => some Forks.sepolia
       | _ => none)
     | fail s!"unknown network {args.network}"
-  let some consensus := args.consensus | fail "--consensus-rpc is required"
+  let urls (v : String) := ((v.splitOn ",").map (·.trimAscii.toString)).filter (· ≠ "") |>.toArray
+  let some consensusAll := args.consensus.map urls | fail "--consensus-rpc is required"
+  let some consensus := consensusAll[0]? | fail "--consensus-rpc is required"
+  let executionAll := (args.execution.map urls).getD #[]
   let checkpoint ← match args.checkpoint.mapM (hexArg "checkpoint") with
     | .ok (some c) => if c.size == 32 then pure (some c) else return ← fail "checkpoint: not 32 bytes"
     | .ok none =>
@@ -202,7 +206,7 @@ def main (argv : List String) : IO UInt32 := do
       else return ← fail "no checkpoint: pass --checkpoint 0xROOT, or --unsafe-untrusted-checkpoint to trust the beacon node's finalized root"
     | .error e => return ← fail e
   if let "record" :: dir :: rest := args.rest then
-    let some exec := args.execution | return ← fail "--execution-rpc is required to record"
+    let some exec := executionAll[0]? | return ← fail "--execution-rpc is required to record"
     let lines ← match rest with
       | [file] => do
         let ls ← IO.FS.lines file
@@ -232,7 +236,7 @@ def main (argv : List String) : IO UInt32 := do
   let command ← match ← parseCommand args.rest with
     | .ok c => pure c
     | .error e => return ← fail e
-  let execution := args.execution.getD ""
+  let execution := (executionAll[0]?).getD ""
   if execution.isEmpty && !(command matches .sync) then
     return ← fail "--execution-rpc is required to read"
   let cfg : Config := {
@@ -241,14 +245,21 @@ def main (argv : List String) : IO UInt32 := do
     execution := execution
     checkpoint := checkpoint
     unsafeUntrustedCheckpoint := args.unsafeUntrustedCheckpoint
+    consensusMore := consensusAll.extract 1
+    executionMore := executionAll.extract 1
   }
+  -- the reads to make, at the block a hash names: `sync` starts fetching them while it checks
+  let wanted : Option (ByteArray → List (String × Json)) := match command with
+    | .sync => none
+    | .one q => some fun hash => callsOf hash q
+    | .many lines => some fun hash => (lines.filterMap fun (_, q) => q.toOption).flatMap (callsOf hash)
   try
-    let (sy, ms, t) ← timed (sync cfg)
+    let (sy, ms, t) ← timed (sync cfg wanted)
     let s := sy.store
     let anchor := s.anchor.map (·.header.beacon.slot)
     emit args.json ([("phase", Json.str "sync"), ("finalized_slot", (jn s.finalized.beacon.slot)),
         ("anchor_slot", (jn (anchor.getD 0))), ("updates", (jn sy.updates)),
-        ("accepted", (jn sy.accepted)),
+        ("accepted", (jn sy.accepted)), ("repeated", (jn sy.repeated)),
         ("refused", Json.arr (sy.refused.reverse.toArray.map Json.str))] ++ timingFields ms t)
       s!"synced: finalized slot {s.finalized.beacon.slot}, anchor slot {anchor.getD 0}, {sy.updates} updates ({sy.accepted} accepted{if sy.refused.isEmpty then "" else s!", refused: {sy.refused.reverse}"}) in {timingText ms t}"
     match command with
@@ -258,7 +269,7 @@ def main (argv : List String) : IO UInt32 := do
       -- the block's header and every read's proofs and code, in one JSON-RPC batch
       let (b, ms, t) ← timed do
         let hash ← anchorHash cfg s
-        prefetch cfg.execution (blockCall hash :: qs.flatMap (callsOf hash))
+        prefetch cfg (blockCall hash :: qs.flatMap (callsOf hash))
         anchoredBlock cfg s
       emit args.json ([("phase", Json.str "anchor"), ("block", (jn b.el.number)),
           ("hash", Json.str (toHex b.hash)), ("reads", (jn qs.length))] ++ timingFields ms t)
@@ -276,14 +287,16 @@ def main (argv : List String) : IO UInt32 := do
     | .one q =>
       let ((fs, text), ms, t) ← timed do
         let hash ← anchorHash cfg s
-        prefetch cfg.execution (blockCall hash :: callsOf hash q)
+        prefetch cfg (blockCall hash :: callsOf hash q)
         let b ← anchoredBlock cfg s
         runQuery cfg b q
       emit args.json (fs ++ timingFields ms t) text
       unless args.json do IO.eprintln s!"read in {timingText ms t}"
     cleanup
-    return 0
+    -- Exit now: requests that lost a race (`firstOf`) may still be running, and the runtime would
+    -- wait for their tasks.
+    IO.Process.exit 0
   catch e =>
     cleanup
     IO.eprintln s!"error: {e}"
-    return 1
+    IO.Process.exit 1

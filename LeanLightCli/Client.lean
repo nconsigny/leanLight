@@ -52,6 +52,16 @@ structure Config where
   execution : String
   checkpoint : Option ByteArray := none
   unsafeUntrustedCheckpoint : Bool := false
+  /-- More beacon nodes, asked with `consensus` at once: the first answer that verifies is used. -/
+  consensusMore : Array String := #[]
+  /-- More execution endpoints, asked with `execution` at once, likewise. -/
+  executionMore : Array String := #[]
+
+/-- Every beacon node, `consensus` first. -/
+def Config.beacons (cfg : Config) : Array String := #[cfg.consensus] ++ cfg.consensusMore
+
+/-- Every execution endpoint, `execution` first. -/
+def Config.endpoints (cfg : Config) : Array String := #[cfg.execution] ++ cfg.executionMore
 
 /-- What a sync did. -/
 structure Synced where
@@ -59,6 +69,8 @@ structure Synced where
   updates : Nat := 0
   accepted : Nat := 0
   refused : List String := []
+  /-- Updates skipped because they repeat a signature the store checked (`sameSigned`). -/
+  repeated : Nat := 0
 
 def die {α} (msg : String) : IO α := throw (IO.userError msg)
 
@@ -87,13 +99,17 @@ def checkpointOf (cfg : Config) : IO ByteArray := do
   return r
 
 def bootstrapOf (cfg : Config) (root : ByteArray) (bs : ByteArray) (version : Option String) :
-    IO Store.Store := do
-  let some fork := version.bind forkOfName | die s!"bootstrap: fork {version} unknown"
+    IO (Option Store.Store) := do
+  let some fork := version.bind forkOfName
+    | log s!"  bootstrap: fork {version} unknown"; return none
   timeVerify do
     let now ← nowMs
-    match Driver.start cfg.chain root now (.name fork) bs with
-    | some s => pure s
-    | none => die "bootstrap: refused (decoding, root, committee branch, age or keys)"
+    let r := Driver.start cfg.chain root now (.name fork) bs
+    if r.isNone then log "  bootstrap: refused (decoding, root, committee branch or age)"
+    pure r
+
+/-- Whether an update's verdict is a refusal (it did not decode, or the store refused it). -/
+def Synced.lastRefused (before after : Synced) : Bool := after.refused.length > before.refused.length
 
 /-- One update through the store. -/
 def receive (cfg : Config) (sy : Synced) (k : Codec.Kind) (tag : Codec.Tag) (bs : ByteArray) :
@@ -120,40 +136,6 @@ def updatesFrom (cfg : Config) (sy : Synced) (bs : ByteArray) : IO Synced := do
     sy ← receive cfg sy .update (.digest ch.digest) ch.ssz
   return sy
 
-/-- Bootstrap, then updates up to the clock's period, then the finality and optimistic updates.
-The bootstrap, the clock period's update and the finality and optimistic updates are fetched
-together, in one round trip (`getSszMany`); older periods' updates, when the checkpoint is older
-than the clock's period, after the bootstrap. The store takes them in the specification's order. -/
-def sync (cfg : Config) : IO Synced := do
-  let root ← checkpointOf cfg
-  let cur ← currentPeriod cfg.chain
-  let lc := s!"{cfg.consensus}/eth/v1/beacon/light_client"
-  let got ← getSszMany #[s!"{lc}/bootstrap/{toHex root}", s!"{lc}/updates?start_period={cur}&count=1",
-    s!"{lc}/finality_update", s!"{lc}/optimistic_update"]
-  let (bbs, bv) ← orDie "bootstrap" (got[0]?.getD (.error "missing answer"))
-  let mut sy : Synced := { store := ← bootstrapOf cfg root bbs bv }
-  -- periods before the clock's
-  let mut guard := 0
-  while Store.period cfg.chain sy.store < cur do
-    guard := guard + 1
-    if guard > 64 then break
-    let p := Store.period cfg.chain sy.store
-    let (bs, _) ← orDie "updates" (← getSsz
-      s!"{lc}/updates?start_period={p}&count={min 128 (cur - p)}")
-    let before := (Store.period cfg.chain sy.store, sy.store.next.isSome)
-    sy ← updatesFrom cfg sy bs
-    if (Store.period cfg.chain sy.store, sy.store.next.isSome) == before then break
-  -- the clock's period, for its next committee
-  if sy.store.next.isNone then
-    match got[1]?.getD (.error "missing answer") with
-    | .ok (bs, _) => sy ← updatesFrom cfg sy bs
-    | .error e => log s!"updates for period {cur}: {e}"
-  for (k, path, i) in [(Codec.Kind.finality, "finality_update", 2), (.optimistic, "optimistic_update", 3)] do
-    let (bs, version) ← orDie path (got[i]?.getD (.error "missing answer"))
-    let some fork := version.bind forkOfName | die s!"{path}: fork {version} unknown"
-    sy ← receive cfg sy k (.name fork) bs
-  return sy
-
 /-! ## The RPC answers a batch prefetched -/
 
 /-- Answers prefetched by one JSON-RPC batch (`prefetch`), by method and parameters. Only a cache
@@ -162,20 +144,42 @@ initialize rpcCache : IO.Ref (Std.HashMap String Json) ← IO.mkRef {}
 
 def callKey (method : String) (params : Json) : String := method ++ params.compress
 
-/-- A call, answered from the prefetched batch when it holds it. -/
-def rpcC (url method : String) (params : Json) : IO (Except String Json) := do
+/-- A call, answered from the prefetched batch when it holds it, else by the first execution
+endpoint that answers. -/
+def rpcC (cfg : Config) (method : String) (params : Json) : IO (Except String Json) := do
   match (← rpcCache.get)[callKey method params]? with
   | some r => return .ok r
-  | none => rpc url method params
+  | none =>
+    let mut last := Except.error "no execution endpoint"
+    for url in cfg.endpoints do
+      last ← rpc url method params
+      if last matches .ok _ then return last
+    return last
 
-/-- The calls, deduplicated, in one JSON-RPC batch; their answers kept for `rpcC`. -/
-def prefetch (url : String) (calls : List (String × Json)) : IO Unit := do
+/-- Prefetches still running (the speculative one `sync` starts); `prefetch` waits for them. -/
+initialize pending : IO.Ref (Array (Task (Except IO.Error Unit))) ← IO.mkRef #[]
+
+/-- The calls not yet cached, deduplicated, in one JSON-RPC batch to every execution endpoint at
+once; each answer kept for `rpcC`, until every call has one. -/
+def prefetchNow (cfg : Config) (calls : List (String × Json)) : IO Unit := do
+  let cache ← rpcCache.get
   let calls := calls.foldl (fun acc c =>
-    if acc.any (fun d => callKey d.1 d.2 == callKey c.1 c.2) then acc else acc.push c) #[]
+    if cache.contains (callKey c.1 c.2) || acc.any (fun d => callKey d.1 d.2 == callKey c.1 c.2)
+    then acc else acc.push c) #[]
   if calls.isEmpty then return
-  let rs ← rpcBatch url calls
-  for (c, r) in calls.toList.zip rs.toList do
-    if let .ok j := r then rpcCache.modify (·.insert (callKey c.1 c.2) j)
+  let tasks ← spawnEach cfg.endpoints (fun _ url => rpcBatch url calls)
+    (Array.replicate calls.size (.error "the request failed"))
+  discard <| firstOf tasks fun (ir : Nat × Array (Except String Json)) => do
+    for (c, r) in calls.toList.zip ir.2.toList do
+      if let .ok j := r then rpcCache.modify (·.insert (callKey c.1 c.2) j)
+    let cache ← rpcCache.get
+    return if calls.all fun c => cache.contains (callKey c.1 c.2) then some () else none
+
+/-- `prefetchNow`, once the prefetches still running have finished. -/
+def prefetch (cfg : Config) (calls : List (String × Json)) : IO Unit := do
+  for t in ← pending.get do discard (IO.wait t)
+  pending.set #[]
+  prefetchNow cfg calls
 
 /-- `eth_getBlockByHash` of the anchored block. -/
 def blockCall (hash : ByteArray) : String × Json :=
@@ -194,6 +198,128 @@ def codeCall (addr : ByteArray) (hash : ByteArray) : String × Json :=
 def anchorHash (cfg : Config) (s : Store.Store) : IO ByteArray := do
   let some a := Store.anchored cfg.chain s (← nowMs) | die "no anchor: the store is halted or too old"
   return a.header.elHash
+
+/-! ## Sync -/
+
+/-- An update's bytes decoded as the fork `version` names, as `Driver.feed` decodes them. -/
+def decodeAs (cfg : Config) (k : Codec.Kind) (version : Option String) (bs : ByteArray) :
+    Option Store.Update :=
+  (version.bind forkOfName).bind fun f => Codec.decodeUpdate Codec.mainnet cfg.chain k (.name f) bs
+
+/-- Whether two updates carry the same signature over the same header: attested header, aggregate
+and signature slot. A beacon node's optimistic update usually repeats its finality update's; the
+store has then checked that signature, and skipping the repeat leaves it reached from the
+checkpoint all the same (`LeanLightProofs.Driver.feed_reaches`: a skipped update is a step not
+taken). -/
+def sameSigned (a b : Store.Update) : Bool :=
+  a.attested.root.data == b.attested.root.data && a.aggregate.bits.data == b.aggregate.bits.data &&
+    a.aggregate.signature.data == b.aggregate.signature.data && a.signatureSlot == b.signatureSlot
+
+/-- Starts fetching, in the background, the block and `wanted`'s calls at the execution block an
+optimistic update's attested header names, before the update is checked: when the checked
+store anchors there, the reads find their answers cached. Unchecked answers are only a cache,
+each checked where it is read (`rpcC`). -/
+def speculate (cfg : Config) (wanted : ByteArray → List (String × Json))
+    (optimistic : Except String (ByteArray × Option String)) : IO Unit := do
+  let .ok (bs, v) := optimistic | return
+  let some u := decodeAs cfg .optimistic v bs | return
+  let h := u.attested.elHash
+  log s!"  fetching the reads at {toHex h} while checking"
+  let t ← IO.asTask (prio := .dedicated) (prefetchNow cfg (blockCall h :: wanted h))
+  pending.modify (·.push t)
+
+/-- Bootstrap, then updates up to the clock's period, then the finality and optimistic updates.
+
+Every beacon node is asked at once for the bootstrap, the clock period's update and the
+finality and optimistic updates, in one round trip each (`getSszMany`); the bootstrap is the
+first that verifies, and each other object is taken from that node, or from the next when the
+store refuses it. Older periods' updates, when the checkpoint is older than the clock's period,
+come after the bootstrap, from the first node to answer. With `wanted` (the reads to make), the
+reads at the block the optimistic update names are fetched while all this is checked
+(`speculate`). The store takes the updates in the specification's order. -/
+def sync (cfg : Config) (wanted : Option (ByteArray → List (String × Json)) := none) :
+    IO Synced := do
+  discard scratchDir
+  let root ← checkpointOf cfg
+  let cur ← currentPeriod cfg.chain
+  let lc (src : String) := s!"{src}/eth/v1/beacon/light_client"
+  let failed : Array (Except String (ByteArray × Option String)) :=
+    Array.replicate 4 (.error "the request failed")
+  let bundles ← spawnEach cfg.beacons (fun _ src => getSszMany #[s!"{lc src}/bootstrap/{toHex root}",
+    s!"{lc src}/updates?start_period={cur}&count=1", s!"{lc src}/finality_update",
+    s!"{lc src}/optimistic_update"]) failed
+  let some (k, got, s0) ← firstOf bundles fun (ig : Nat × Array (Except String (ByteArray × Option String))) => do
+      let (i, got) := ig
+      let a0 : Option (Except String (ByteArray × Option String)) := got[0]?
+      match a0 with
+      | some (.ok (bs, v)) => return (← bootstrapOf cfg root bs v).map fun s => (i, got, s)
+      | some (.error e) => log s!"  bootstrap from {cfg.beacons[i]?.getD ""}: {e}"; return none
+      | none => return none
+    | die "bootstrap: no beacon node gave one that verifies (decoding, root, committee branch or age)"
+  if cfg.beacons.size > 1 then log s!"  bootstrap from {cfg.beacons[k]?.getD ""}"
+  if let some w := wanted then speculate cfg w (got[3]?.getD (.error "missing"))
+  -- object `j` of the first bundle, after `k`'s, that `use` takes
+  let order := k :: (List.range bundles.size).filter (· != k)
+  let tryEach {β} (j : Nat) (use : ByteArray × Option String → IO (Option β)) : IO (Option β) := do
+    for i in order do
+      let some t := bundles[i]? | continue
+      let answer : Option (Except String (ByteArray × Option String)) := (← IO.wait t).2[j]?
+      match answer with
+      | some (.ok x) => if let some b ← use x then return some b
+      | some (.error e) => log s!"  {cfg.beacons[i]?.getD ""}: {e}"
+      | none => pure ()
+    return none
+  let mut sy : Synced := { store := s0 }
+  -- periods before the clock's
+  let mut guard := 0
+  while Store.period cfg.chain sy.store < cur do
+    guard := guard + 1
+    if guard > 64 then break
+    let p := Store.period cfg.chain sy.store
+    let path := s!"updates?start_period={p}&count={min 128 (cur - p)}"
+    let asks ← spawnEach cfg.beacons (fun _ src => getSsz s!"{lc src}/{path}") (.error "the request failed")
+    let some bs ← firstOf asks fun (ir : Nat × Except String (ByteArray × Option String)) =>
+        return match ir.2 with | .ok (bs, _) => some bs | _ => none
+      | die s!"updates from period {p}: no beacon node answered"
+    let before := (Store.period cfg.chain sy.store, sy.store.next.isSome)
+    sy ← updatesFrom cfg sy bs
+    if (Store.period cfg.chain sy.store, sy.store.next.isSome) == before then break
+  -- the clock's period, for its next committee
+  if sy.store.next.isNone then
+    let sy0 := sy
+    if let some sy' ← tryEach 1 fun (bs, _) => do
+        let sy' ← try updatesFrom cfg sy0 bs catch _ => pure sy0
+        return if sy0.lastRefused sy' then none else some sy'
+    then sy := sy'
+  -- The finality and optimistic updates: node `k`'s (or, when the store refuses it, the next
+  -- node's), then every other node's that has arrived, so that a node fast but behind does not
+  -- hold the anchor back: the store keeps the better. One signed header is checked once
+  -- (`sameSigned`): a node's optimistic update usually repeats its finality update's.
+  let mut seen : Array Store.Update := #[]
+  for (j, kind, name) in [(2, Codec.Kind.finality, "finality update"), (3, .optimistic, "optimistic update")] do
+    let mut taken := false
+    for i in order do
+      let some t := bundles[i]? | continue
+      if taken && !(← IO.hasFinished t) then continue
+      let answer : Option (Except String (ByteArray × Option String)) := (← IO.wait t).2[j]?
+      let some (.ok (bs, v)) := answer | continue
+      let some fork := v.bind forkOfName | continue
+      if let some u := decodeAs cfg kind v bs then
+        if seen.any (sameSigned u) then
+          log s!"  {name} from {cfg.beacons[i]?.getD ""}: a signed header checked already"
+          sy := { sy with repeated := sy.repeated + 1 }
+          taken := true
+          continue
+        seen := seen.push u
+      let sy0 := sy
+      let sy' ← receive cfg sy0 kind (.name fork) bs
+      if sy0.lastRefused sy' then
+        sy := { sy' with refused := sy0.refused }
+      else
+        sy := sy'
+        taken := true
+    if !taken then sy := { sy with refused := name :: sy.refused }
+  return sy
 
 /-! ## Reads at the anchor -/
 
@@ -253,7 +379,7 @@ def anchoredBlock (cfg : Config) (s : Store.Store) : IO Anchored := do
   let some a := Store.anchored cfg.chain s now | die "no anchor: the store is halted or too old"
   let hash := a.header.elHash
   let (m, ps) := blockCall hash
-  let block ← orDie "eth_getBlockByHash" (← rpcC cfg.execution m ps)
+  let block ← orDie "eth_getBlockByHash" (← rpcC cfg m ps)
   let rlp ← orDie "header" (headerRlp block)
   timeVerify do
     let now ← nowMs
@@ -269,7 +395,7 @@ structure AccountRead where
 def readAccount (cfg : Config) (b : Anchored) (addr : ByteArray) (slots : List ByteArray) :
     IO AccountRead := do
   let (m, ps) := proofCall addr slots b.hash
-  let r ← orDie "eth_getProof" (← rpcC cfg.execution m ps)
+  let r ← orDie "eth_getProof" (← rpcC cfg m ps)
   let nodes ← orDie "accountProof" (proofNodes (← orDie "eth_getProof" (r.getObjVal? "accountProof")))
   let sp ← orDie "storageProof" do (← r.getObjVal? "storageProof").getArr?
   if sp.size != slots.length then die "eth_getProof: wrong number of storage proofs"
@@ -287,7 +413,7 @@ def readAccount (cfg : Config) (b : Anchored) (addr : ByteArray) (slots : List B
 def readCode (cfg : Config) (b : Anchored) (addr : ByteArray) (acct : Spec.Mpt.Account) :
     IO ByteArray := do
   let (m, ps) := codeCall addr b.hash
-  let r ← orDie "eth_getCode" (← rpcC cfg.execution m ps)
+  let r ← orDie "eth_getCode" (← rpcC cfg m ps)
   let some code := hexBytes (← orDie "eth_getCode" r.getStr?) | die "eth_getCode: not hex"
   timeVerify do
     if Driver.codeOk acct code then pure code
