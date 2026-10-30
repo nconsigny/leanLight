@@ -50,8 +50,11 @@ What the proofs cover, in brief (the statements are in the files):
   aggregate key to their sum) that is the participants' sum, and the signature check is the
   verification equation over it (`signersKey?_eq`, `verifySignature_iff_pairing`,
   `Signers.lean`).
-- **SSZ**: the decoders are canonical and agree with ssz-specs; `hash_tree_root` of each light-client
-  container is ssz-specs'; a branch verifies exactly when the leaf is in the tree (`Ssz*.lean`).
+- **SSZ**: each of the 14 light-client decoders returns a value exactly when ssz-specs'
+  `deserialize` does, and the same value (`decode_iff`), and accepts only the canonical encoding
+  of it (`decode_canonical`, `decode_injective_bytes`; `SszDecode.lean`, `SszDecodeElectra.lean`);
+  `hash_tree_root` of each light-client container is ssz-specs'; a branch verifies exactly when
+  the leaf is in the tree (`Ssz*.lean`).
 - **The store**: bootstrap binds the checkpoint; an update is accepted only after every check of
   the sync protocol, BLS included; conflicts halt the store; the age bound and the clock
   (`Store.lean`, `Forks.lean`).
@@ -62,7 +65,7 @@ What the proofs cover, in brief (the statements are in the files):
   (`Anchor.lean`, `Trie.lean`, `Spec/MptTrie.lean`, `Inclusion.lean`).
 
 `scripts/check-axioms.sh` audits every constant of `LeanLight` and `LeanLightProofs` (about
-6,600, 3,210 of them theorems): each may rest only on `propext`, `Classical.choice` and
+7,000, 3,574 of them theorems): each may rest only on `propext`, `Classical.choice` and
 `Quot.sound`, so no `sorry` and no `native_decide`. `scripts/check-kernel.sh` replays every
 module through Lean's kernel. `scripts/check-runtime.sh` refuses any `@[implemented_by]`,
 `@[extern]`, `opaque` or `unsafe` in `LeanLight/`. CI runs all three on every push.
@@ -109,7 +112,12 @@ participants' sum on a consistent committee (`signersKey?_eq`).
   only ever one `Store.bootstrap` of the checkpoint started and `Store.receive` steps carried
   (`start_reaches`, `feed_reaches`), and a value printed is read at that store's anchor, under
   the EL header `Anchor.bind` keeps for it, by the trie's specification (`read_sound`), code only
-  when it hashes to the proved hash (`codeOk_spec`). So a bug in the loop can fail a read or leave
+  when it hashes to the proved hash (`codeOk_spec`). Every store so reached holds committees
+  each proved, from the checkpoint's on, by a branch under a header an earlier committee's
+  signature check passed, a finalized header and an anchor likewise (`reaches_committees`,
+  `reaches_finalized`, `reaches_anchor`; what a passed check means rests on the BLS hypotheses
+  and `Committee.Consistent` above), and a read there binds account and storage values short of
+  a Keccak-256 collision (`reaches_read_sound`). So a bug in the loop can fail a read or leave
   the anchor stale; it cannot make a value pass that those checks refuse. The loop itself is not
   proved.
 - `curl`, the operating system and the clock: a clock set back can make an old checkpoint look
