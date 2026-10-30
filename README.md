@@ -260,6 +260,11 @@ Thank you to their authors:
   and `88efe971` (Keccak-256): SHA-256 and Keccak-256 in Lean, the specifications the runtime's
   hashes are proved against.
 
+Thanks to [Th0rgal](https://github.com/Th0rgal) (Thomas Marchand) for the Keccak-256 proof
+against VCVio (#4), inline proof nodes (#5), the CLI's hardening (#6) and the SSZ decoders' and
+`Driver.Reaches`' theorems (#9), and for a first take on `HashInG2` and the ψ subgroup check (#7,
+#8), and for [turbo-lean](https://github.com/Th0rgal/turbo-lean), which leanKohakuDesktop's proof work runs on.
+
 They are copied, not required: each file names its source commit, and the copies changed only
 as their headers say. Thanks also to [Mathlib](https://github.com/leanprover-community/mathlib4),
 whose elliptic-curve group law the BLS proofs use, and to
