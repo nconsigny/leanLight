@@ -97,6 +97,8 @@ def timeNet {α} (act : IO (α × Nat)) : IO α := do
     { t with netMs := t.netMs + (t1 - t0), requests := t.requests + 1, bytes := t.bytes + size }
   return a
 
+/-- `act`, timed as verifying. A pure check in `act` must depend on something `act` reads (the
+clock, `nowMs`), or the compiler may compute it before the timer starts. -/
 def timeVerify {α} (act : IO α) : IO α := do
   let t0 ← IO.monoMsNow
   let a ← act

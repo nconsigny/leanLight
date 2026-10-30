@@ -89,8 +89,8 @@ def checkpointOf (cfg : Config) : IO ByteArray := do
 def bootstrapOf (cfg : Config) (root : ByteArray) (bs : ByteArray) (version : Option String) :
     IO Store.Store := do
   let some fork := version.bind forkOfName | die s!"bootstrap: fork {version} unknown"
-  let now ← nowMs
   timeVerify do
+    let now ← nowMs
     match Driver.start cfg.chain root now (.name fork) bs with
     | some s => pure s
     | none => die "bootstrap: refused (decoding, root, committee branch, age or keys)"
@@ -98,8 +98,8 @@ def bootstrapOf (cfg : Config) (root : ByteArray) (bs : ByteArray) (version : Op
 /-- One update through the store. -/
 def receive (cfg : Config) (sy : Synced) (k : Codec.Kind) (tag : Codec.Tag) (bs : ByteArray) :
     IO Synced := do
-  let now ← nowMs
   timeVerify do
+    let now ← nowMs
     match Driver.feed cfg.chain sy.store now k tag bs with
     | (_, none) => pure { sy with updates := sy.updates + 1, refused := "undecodable" :: sy.refused }
     | (s, some v) =>
@@ -255,8 +255,8 @@ def anchoredBlock (cfg : Config) (s : Store.Store) : IO Anchored := do
   let (m, ps) := blockCall hash
   let block ← orDie "eth_getBlockByHash" (← rpcC cfg.execution m ps)
   let rlp ← orDie "header" (headerRlp block)
-  let now ← nowMs
   timeVerify do
+    let now ← nowMs
     match Driver.bindAnchor cfg.chain s now rlp with
     | some (b, h) => pure { store := s, beacon := b, rlp, el := h, hash }
     | none => die "header: the endpoint's block does not match the anchored execution block"
@@ -277,8 +277,8 @@ def readAccount (cfg : Config) (b : Anchored) (addr : ByteArray) (slots : List B
   for (k, p) in slots.zip sp.toList do
     let ns ← orDie "storage proof" do proofNodes (← p.getObjVal? "proof")
     pairs := pairs ++ [(k.data.toList, ns)]
-  let now ← nowMs
   timeVerify do
+    let now ← nowMs
     match Driver.read cfg.chain b.store now b.rlp addr.data.toList nodes pairs with
     | some (_, acct, vs) => pure { account := acct, slots := vs }
     | none => die "eth_getProof: the proof does not prove the account under the anchored state root"
