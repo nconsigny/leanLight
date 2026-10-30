@@ -85,9 +85,9 @@ store, whose rules are the consensus specs' as transcribed (`docs/spec-16-light-
 
 **Assumed, checked by test vectors.** That the pairing is bilinear and non-degenerate on
 G1 × G2: named hypotheses in the BLS theorems (`PairingCheckIs`, `PairingNonDegenerate`; `H_vec`
-in the design notes), checked by the BLS vectors and the differential test, never axioms. The
-others H_vec named are theorems since 2026-10-30: `HashInG2` (`hashInG2`), `FinalExpCube`
-(`finalExp_toGF`) and `MillerLoopsCube` (`millerLoopsCube`, on G2, where it holds).
+in the design notes), checked by the BLS vectors and the differential test, never axioms. That
+hash-to-G2 lands in G2, that the fast final exponentiation is the cube of the naive one and that
+the Miller loop is EthLib's are theorems (`hashInG2`, `finalExp_toGF`, `millerLoopsCube`).
 
 **Assumed, the chain's.** That a sync committee's keys are points of G1 and its
 `aggregate_pubkey` their sum (`Committee.Consistent`, a hypothesis of the signature theorems in
@@ -186,49 +186,46 @@ of the JSON.
 
 **What verifying costs, offline.** `tests/` replays two recorded mainnet runs (`leanlight
 record`, in `tests/fixtures/`) with no network, so only the light client's own work is timed
-(`lake exe leanlight-bench`; median of 15 runs, on a shared 32-core machine under load;
+(`lake exe leanlight-bench`; median of 15 runs, on a shared 32-core machine;
 `bench/results/offline-2026-10-30/`). Helios's consensus checks (`helios-consensus-core` at
 `a16z/helios` `2af9b41`) replay the same bytes in `bench/helios-replay` (`cargo run --release --
 15 ../../tests/fixtures/mainnet-fresh ../../tests/fixtures/mainnet-week`):
 
-| Step | leanLight, 1 core | Helios | leanLight on 2026-10-29, keys validated |
-|---|---|---|---|
-| Bootstrap (the checkpoint's root and committee branch) | 2.3–2.6 ms | 0.4 ms | 283 ms |
-| A period update (a signature and the next committee's root) | 21–22 ms | 2.7–3.0 ms | 222–327 ms |
-| A finality or optimistic update (one signature) | 16–17 ms | 2.4–3.0 ms | 20–35 ms |
-| Binding the anchored block's header | 15 µs | | 13–34 µs |
-| 13 reads (balances, nonces, storage, code), proofs checked | 0.8 ms | | 0.8 ms |
-| **A sync from a fresh checkpoint** (leanLight: then the 13 reads) | **59 ms** | **8.2 ms** | 0.59 s |
-| **A sync from a checkpoint 7 periods old** | **0.18 s** | **26 ms** | 2.05 s |
+| Step | leanLight (1 core) | Helios |
+|---|---|---|
+| Bootstrap (the checkpoint's root and committee branch) | 2.3–2.6 ms | 0.4 ms |
+| A period update (a signature and the next committee's root) | 21–22 ms | 2.7–3.0 ms |
+| A finality or optimistic update (one signature) | 16–17 ms | 2.4–3.0 ms |
+| Binding the anchored block's header | 15 µs | |
+| 13 reads (balances, nonces, storage, code), proofs checked | 0.8 ms | |
+| **A sync from a fresh checkpoint** (leanLight: then the 13 reads) | **59 ms** | **8.2 ms** |
+| **A sync from a checkpoint 7 periods old** | **0.18 s** | **26 ms** |
 
-More cores change nothing now. A signature check is the cost, about 7 times Helios's: hash-to-G2
+More cores change nothing. A signature check is the cost, about 7 times Helios's: hash-to-G2
 (about 7 ms), the pairing (about 9 ms), the signature's decoding and ψ subgroup check (0.5 ms),
-in Lean over GMP, where Helios calls a native BLS library. Committee keys used to be: every
-committee's 512 keys went through KeyValidate; now none do, as in the consensus specs and
-Helios, and a signature decodes only the committee's aggregate key and the absent keys
-(`Signers.lean`). Proofs and headers are cheap.
+in Lean over GMP, where Helios calls a native BLS library. Committee keys are not validated, as
+in the consensus specs and Helios: a signature decodes only the committee's aggregate key and
+the absent keys (`Signers.lean`). Proofs and headers are cheap.
 
 **Against Helios, on the same endpoints.** `bench/compare.py` starts Helios (`a16z/helios`
 `2af9b41`) and `leanlight` from the same checkpoint on the same consensus and execution
 endpoints, and compares every read at leanLight's anchored block with Helios's and the endpoint's
-(2026-10-29, mainnet, 3 rounds per endpoint set; `bench/results/2026-10-29/`). Read it as two
-request strategies over the same network rather than as the two verifiers' speed: the network
-dominates, leanlight fetches its sync objects in one round trip and its reads in one JSON-RPC
-batch while Helios asks one call per read. This run predates the change above: leanLight still
-validated every committee key, on every core.
+(mainnet, the Nimbus beacon node with publicnode's or dRPC's execution endpoint, 3 rounds each;
+`bench/results/2026-10-30/`). The network dominates, so read it as two request strategies over
+the same network rather than as the two verifiers' speed: leanlight fetches its sync objects in
+one round trip and its reads in one JSON-RPC batch, while Helios asks one call per read.
 
 | | Helios | leanLight |
 |---|---|---|
-| Sync from a fresh checkpoint | 0.56–2.44 s | 0.26–0.69 s (of which checking about 0.1 s) |
-| Sync from a checkpoint 6 sync periods old | 0.82–2.29 s | 1.10–4.48 s (checking 0.4–0.6 s; the rest the beacon node) |
-| 14 reads (balances, nonces, code, storage) | 0.40–1.73 s, one call each | 0.25–0.39 s, one batch |
-| Memory (RSS) | 22–24 MB | 22–24 MB |
-| Binary | 25 MB | 6.4 MB |
+| Sync from a fresh checkpoint | 0.8–1.4 s | 0.25–0.84 s (verifying 0.05–0.09 s) |
+| Sync from a checkpoint 6 sync periods old | 0.9–1.3 s | 0.8–1.2 s (verifying 0.2–0.3 s) |
+| 14 reads (balances, nonces, code, storage), publicnode | 0.36–0.47 s, one call each | 0.09–0.13 s, one batch |
+| 14 reads, dRPC | 1.8–8.3 s, one call each | 3.5–3.6 s, one batch (dRPC answers batches slowly) |
+| Memory (peak RSS) | 22–26 MB | 27–73 MB |
+| Binary | 25 MB | 6.5 MB |
 
 Every value leanLight returned equalled the endpoint's at its block, and Helios's wherever Helios
-answered at that block. With Lodestar's public beacon node as its source, Helios did not become
-ready within 120 s in two rounds of three: its head stayed minutes old, which looks like stale
-JSON answers from that source (leanLight reads its SSZ), not a speed result.
+answered at that block.
 
 ## Reading the comments
 
@@ -262,8 +259,8 @@ Thank you to their authors:
 
 Thanks to [Th0rgal](https://github.com/Th0rgal) (Thomas Marchand) for the Keccak-256 proof
 against VCVio (#4), inline proof nodes (#5), the CLI's hardening (#6) and the SSZ decoders' and
-`Driver.Reaches`' theorems (#9), and for a first take on `HashInG2` and the ψ subgroup check (#7,
-#8), and for [turbo-lean](https://github.com/Th0rgal/turbo-lean), which leanKohakuDesktop's proof work runs on.
+`Driver.Reaches`' theorems (#9), for work on `HashInG2` and the ψ subgroup check (#7, #8), and
+for [turbo-lean](https://github.com/Th0rgal/turbo-lean), which leanKohakuDesktop's proof work runs on.
 
 They are copied, not required: each file names its source commit, and the copies changed only
 as their headers say. Thanks also to [Mathlib](https://github.com/leanprover-community/mathlib4),
