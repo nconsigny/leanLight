@@ -40,6 +40,7 @@ import LeanLightProofs.Spec.RlpDecode
 import LeanLightProofs.Spec.Sha256
 import LeanLightProofs.Spec.Sha256Folds
 import LeanLightProofs.Spec.Ssz
+import LeanLightProofs.Spec.SyncProtocol
 import LeanLightProofs.SszBranch
 import LeanLightProofs.SszDecode
 import LeanLightProofs.SszDecodeElectra
@@ -48,6 +49,7 @@ import LeanLightProofs.SszGindex
 import LeanLightProofs.SszMerkle
 import LeanLightProofs.SszRoot
 import LeanLightProofs.Store
+import LeanLightProofs.SyncProtocol
 import LeanLightProofs.Trie
 import LeanLightProofs.Typed
 import LeanLightProofs.Vendor.EthLib.Bls.Compress

@@ -1443,6 +1443,17 @@ running, or answers for another chain.
 
 ## The protocol
 
+> **leanLight, 2026-11-09.** leanLight's store now keeps the specification's whole
+> `LightClientStore` (the optimistic header and both participation counters included), checks
+> `current_slot >= signature_slot` and `update.next_sync_committee == store.next_sync_committee`
+> as `validate_light_client_update` does, and has the specification's forced update
+> (`Store.forceUpdate`, never called by the client). The sync protocol is transcribed from
+> consensus-specs v1.7.0-beta.5 in `proofs/LeanLightProofs/Spec/SyncProtocol.lean`, and the store
+> is proved to refine it (`proofs/LeanLightProofs/SyncProtocol.lean`, `reaches_spec`). Where this
+> section and that file disagree, the file and its theorems are leanLight's; the departures that
+> remain are listed in `LeanLight/Store.lean`. The rest of this section is the design record as
+> copied.
+
 Altair's light client sync protocol (`specs/altair/light-client/sync-protocol.md`), as Capella,
 Deneb, Electra and Gloas amend it. `lkd` starts from an Electra or later checkpoint and refuses
 earlier headers, so only Electra-era and Gloas types run; earlier forks matter only for test

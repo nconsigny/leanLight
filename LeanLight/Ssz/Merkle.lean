@@ -103,6 +103,12 @@ def isValidNormalizedBranch (leaf : ByteArray) (branch : Array ByteArray) (ginde
 
 /-! ## The generalized indices -/
 
+/-- `finalized_checkpoint.root` in an Altair to Deneb `BeaconState` (`FINALIZED_ROOT_GINDEX`). -/
+def gindexFinalizedRootAltair : Nat := 105
+/-- `current_sync_committee` in an Altair to Deneb `BeaconState` (`CURRENT_SYNC_COMMITTEE_GINDEX`). -/
+def gindexCurrentSyncCommitteeAltair : Nat := 54
+/-- `next_sync_committee` in an Altair to Deneb `BeaconState` (`NEXT_SYNC_COMMITTEE_GINDEX`). -/
+def gindexNextSyncCommitteeAltair : Nat := 55
 /-- `finalized_checkpoint.root` in an Electra or Fulu `BeaconState` (`FINALIZED_ROOT_GINDEX_ELECTRA`). -/
 def gindexFinalizedRootElectra : Nat := 169
 /-- `current_sync_committee` in an Electra or Fulu `BeaconState`. -/

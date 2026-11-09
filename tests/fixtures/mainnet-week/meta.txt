@@ -1,5 +1,5 @@
 network mainnet
-now_ms 1793299803947
+now_ms 1793299812000
 checkpoint 0xdef046b141a64f599fb85f8d3b8cec23be2ca3ce42fb80284fc54e1a0183e3fa
 bootstrap_fork fulu
 finality_fork fulu

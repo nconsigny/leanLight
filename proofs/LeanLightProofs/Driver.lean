@@ -215,7 +215,7 @@ theorem apply_committees_auth {c : Chain} {root : ByteArray} {b : Store.Store} {
       · rfl
     have hbr := (Store.nextOk_empty (Store.formOk_parts hform).2.2.2.2.2).2 hsc
     rw [← (Store.ofSync_keys hsync).2.2.2] at hbr
-    exact .next hcom rfl hform hsm hsig hsc hsync hbr
+    exact .next hcom rfl hform hsm hsig hsc hsync hbr.2
   unfold Store.apply
   cases hbnext : b.next with
   | none =>
@@ -237,8 +237,10 @@ theorem apply_committees_auth {c : Chain} {root : ByteArray} {b : Store.Store} {
           · rw [hbnext] at hsnext; cases hsnext
         split
         · dsimp only
-          have hp' : Store.period c { b with next := nc, finalized := u.finalized, best := none } =
-              Store.period c b := by
+          have hp' : Store.period c { b with
+                next := nc, finalized := u.finalized, best := none
+                optimistic := if b.optimistic.beacon.slot < u.finalized.beacon.slot then u.finalized
+                  else b.optimistic } = Store.period c b := by
             unfold Store.period; exact hfp
           rw [hp']
           exact ⟨hcur, fun n hn => hu_per ▸ hlearned hlearn hn⟩
@@ -271,8 +273,12 @@ theorem apply_committees_auth {c : Chain} {root : ByteArray} {b : Store.Store} {
             current := nx
             next := nc
             past := ((Store.period c b, b.current) :: b.past).take Store.maxPast
+            previousMaxActive := b.currentMaxActive
+            currentMaxActive := 0
             finalized := u.finalized
-            best := none }
+            best := none
+            optimistic := if b.optimistic.beacon.slot < u.finalized.beacon.slot then u.finalized
+              else b.optimistic }
         have hp' : Store.period c b' = Store.period c b + 1 := by
           unfold Store.period; exact hfp
         change CommitteeAuth c root (Store.period c b') b'.current ∧
@@ -289,8 +295,10 @@ theorem apply_committees_auth {c : Chain} {root : ByteArray} {b : Store.Store} {
       split
       · rename_i hlt
         dsimp only
-        have hp' : Store.period c { b with finalized := u.finalized, best := none } =
-            Store.period c b := by
+        have hp' : Store.period c { b with
+              finalized := u.finalized, best := none
+              optimistic := if b.optimistic.beacon.slot < u.finalized.beacon.slot then u.finalized
+                else b.optimistic } = Store.period c b := by
           obtain ⟨-, hsig_lt, hfa, -⟩ := Store.formOk_parts hform
           have hp1 := Store.periodAt_mono c (Nat.le_of_lt hlt)
           have hp2 := Store.periodAt_mono c (Nat.le_trans hfa (Nat.le_of_lt hsig_lt))
@@ -348,9 +356,9 @@ theorem reaches_committees {c : Chain} {root : ByteArray} {s : Store.Store}
           ∀ n, r.next = some n → CommitteeAuth c root (Store.period c r + 1) n
         rw [hr']
         let b := Store.bested c s₁ u
-        have hbf : b.finalized = s.finalized := (Store.moveAnchor_frame c (Store.keepBest c s₁ u) u).1
-        have hbc : b.current = s.current := (Store.moveAnchor_frame c (Store.keepBest c s₁ u) u).2.1
-        have hbn : b.next = s.next := (Store.moveAnchor_frame c (Store.keepBest c s₁ u) u).2.2.1
+        have hbf : b.finalized = s.finalized := (Store.bested_frame c s₁ u).1
+        have hbc : b.current = s.current := (Store.bested_frame c s₁ u).2.1
+        have hbn : b.next = s.next := (Store.bested_frame c s₁ u).2.2.1
         have hbp : Store.period c b = Store.period c s := by unfold Store.period; rw [hbf]
         have hbcur : CommitteeAuth c root (Store.period c b) b.current := by
           rw [hbp, hbc]; exact hcur

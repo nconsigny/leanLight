@@ -37,12 +37,14 @@ def forkOfName : String → Option ForkName
 def verdictName : Store.Verdict → String
   | .halted => "halted"
   | .malformed => "malformed"
+  | .future => "signature slot after the clock's slot"
   | .unknownPeriod => "unknown period"
   | .tooOld => "too old"
   | .badSignature => "bad signature"
   | .conflict => "conflict"
   | .compared => "compared"
   | .irrelevant => "irrelevant"
+  | .nextMismatch => "next committee differs from the store's"
   | .badKeys => "bad keys"
   | .accepted a l => s!"accepted (applied {a}, learned {l})"
 

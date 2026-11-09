@@ -1,4 +1,5 @@
 import LeanLightTests.Store.Util
+import LeanLightProofs.Spec.SyncProtocol
 
 /-!
 # The minimal preset's `sync` and `update_ranking` vectors
@@ -10,20 +11,23 @@ minimal preset's decoders (`LeanLightDev`), under the rules of `docs/spec-16-lig
 
 * each step's update is decoded as the fork its digest names, which must be the fork of its
   attested slot (`Codec.decodeUpdate`), and must be accepted;
-* after each step, `slot`, `beacon_root` and `execution_root` of the finalized header are
-  compared, and the optimistic header's against the anchor or the finalized header, whichever is
-  newer (lkd has no optimistic header; every step has full participation);
+* after each step, `slot`, `beacon_root` and `execution_root` of the finalized and optimistic
+  headers are compared;
 * now is `slotTime(current_slot)`;
-* a `force_update` whose checks differ from the previous step's forces an update, which lkd
-  never does (N6): it and the rest of its case are reported unsupported, not failed; one whose
-  checks are unchanged is a no-op;
+* a `force_update` runs `Store.forceUpdate`, the specification's
+  `process_light_client_store_force_update`, which leanLight's client never calls (N6) but the
+  vectors do;
+* the same steps run on the specification itself, transcribed (`LeanLightProofs.Spec.SyncProtocol`:
+  `initialize_light_client_store`, `process_light_client_update`,
+  `process_light_client_store_force_update`), whose finalized and optimistic headers must match
+  the vectors' too: the transcription is checked against consensus-specs' own outputs;
 * `upgrade_store` changes nothing: the store keeps each header in the form it was validated in,
   and `get_lc_execution_root` is the same for an Electra header and its upgrade.
 
 `update_ranking`: the updates are listed best first, so `isBetter` must prefer each to every
 later one, and never a later one to an earlier one; and on every pair, `isBetter` (the
-lexicographic order on `Store.rank` that runs) must agree with `isBetterSpec`, the
-specification's `is_better_update` transcribed as written.
+lexicographic order on `Store.rank` that runs) must agree with the transcribed specification's
+`is_better_update` (as `LeanLightProofs.SyncProtocol.isBetter_spec` proves it does).
 -/
 
 namespace LeanLightTests.Store
@@ -46,13 +50,47 @@ def executionRoot (c : Forks.Chain) (h : Header) : ByteArray :=
 def summary (c : Forks.Chain) (h : Header) : List String :=
   [toString h.beacon.slot, hex h.root, hex (executionRoot c h)]
 
-/-- The store's finalized header, and its optimistic header's stand-in: the anchor or the
-finalized header, whichever is newer. -/
+/-- A specification header as a normalized one, to summarize it. -/
+def ofSpecHeader : LeanLight.Spec.LightClient.LightClientHeader → Header
+  | .electra b e br => ⟨b, .payload e, br⟩
+  | .gloas b h br => ⟨b, .blockHash h, br⟩
+
+/-- A normalized header as the specification's. -/
+def toSpecHeader (h : Header) : LeanLight.Spec.LightClient.LightClientHeader :=
+  match h.exec with
+  | .payload e => .electra h.beacon e h.branch
+  | .blockHash b => .gloas h.beacon b h.branch
+
+/-- A normalized update as the specification's. -/
+def toSpecUpdate (u : Update) : LeanLight.Spec.LightClient.LightClientUpdate :=
+  ⟨toSpecHeader u.attested, u.next, u.nextBranch, toSpecHeader u.finalized, u.finalityBranch,
+    u.aggregate, u.signatureSlot⟩
+
+/-- The specification's configuration for a vector's chain: the minimal preset, every fork before
+Electra at epoch 0 (the vectors' configurations start at Electra), the chain table's forks. -/
+def specConfig (c : Forks.Chain) : LeanLight.Spec.LightClient.Config :=
+  let ep (n : Forks.ForkName) := c.epochOf n
+  let ver (n : Forks.ForkName) := (((c.forks.find? (·.name == n)).map (·.version)).getD ⟨#[]⟩)
+  { SLOTS_PER_EPOCH := c.preset.slotsPerEpoch,
+    EPOCHS_PER_SYNC_COMMITTEE_PERIOD := c.preset.epochsPerPeriod,
+    SYNC_COMMITTEE_SIZE := c.preset.committeeSize, MIN_SYNC_COMMITTEE_PARTICIPANTS := 1,
+    GENESIS_FORK_VERSION := ⟨#[0, 0, 0, 1]⟩, ALTAIR_FORK_VERSION := ⟨#[1, 0, 0, 1]⟩,
+    ALTAIR_FORK_EPOCH := 0, BELLATRIX_FORK_VERSION := ⟨#[2, 0, 0, 1]⟩, BELLATRIX_FORK_EPOCH := 0,
+    CAPELLA_FORK_VERSION := ⟨#[3, 0, 0, 1]⟩, CAPELLA_FORK_EPOCH := 0,
+    DENEB_FORK_VERSION := ⟨#[4, 0, 0, 1]⟩, DENEB_FORK_EPOCH := 0,
+    ELECTRA_FORK_VERSION := ver .electra, ELECTRA_FORK_EPOCH := ep .electra,
+    FULU_FORK_VERSION := ver .fulu, FULU_FORK_EPOCH := ep .fulu,
+    GLOAS_FORK_VERSION := ver .gloas, GLOAS_FORK_EPOCH := ep .gloas }
+
+/-- The specification store's finalized and optimistic headers. -/
+def observedSpec (c : Forks.Chain) : Option LeanLight.Spec.LightClient.LightClientStore → List String
+  | some st => summary c (ofSpecHeader st.finalized_header) ++
+      summary c (ofSpecHeader st.optimistic_header)
+  | none => []
+
+/-- The store's finalized and optimistic headers. -/
 def observed (c : Forks.Chain) (s : Store.Store) : List String :=
-  let opt := match s.anchor with
-    | some a => if s.finalized.beacon.slot < a.header.beacon.slot then a.header else s.finalized
-    | none => s.finalized
-  summary c s.finalized ++ summary c opt
+  summary c s.finalized ++ summary c s.optimistic
 
 /-- One `sync` case. -/
 def runSync (t : Tally) (dir : System.FilePath) (name : String) : IO Tally := do
@@ -70,6 +108,11 @@ def runSync (t : Tally) (dir : System.FilePath) (name : String) : IO Tally := do
     | return t.check false s!"{name}: bootstrap refused"
   t := t.check true s!"{name}: bootstrap"
   let _ := first
+  let cfg := specConfig c
+  let mut sp : Option LeanLight.Spec.LightClient.LightClientStore :=
+    LeanLight.Spec.LightClient.initialize_light_client_store cfg trusted
+      ⟨toSpecHeader b.header, b.committee, b.branch⟩
+  t := t.check sp.isSome s!"{name}: the specification's bootstrap"
   let mut s := s0
   let mut previous : List String := observed c s
   let mut i := 0
@@ -89,45 +132,27 @@ def runSync (t : Tally) (dir : System.FilePath) (name : String) : IO Tally := do
         t := t.check ok s!"{name} step {i}: update not accepted"
         let got := observed c s
         t := t.check (got == checks) s!"{name} step {i}: store {got}, expected {checks}"
+        sp := sp.bind fun st => LeanLight.Spec.LightClient.process_light_client_update cfg st (toSpecUpdate u)
+          (natOf slot) gvr
+        t := t.check (observedSpec c sp == checks)
+          s!"{name} step {i}: the specification's store {observedSpec c sp}, expected {checks}"
         previous := checks
-    | "force_update" :: _ :: checks =>
-      if checks == previous then
-        t := t.check (observed c s == checks) s!"{name} step {i}: a no-op force_update"
-      else
-        t := t.skip s!"{name}: steps {i} to {steps.length}, from an effective force_update (N6)"
-        return t
+    | "force_update" :: slot :: checks =>
+      s := Store.forceUpdate c s (c.slotTime (natOf slot))
+      let got := observed c s
+      t := t.check (got == checks) s!"{name} step {i}: force_update: store {got}, expected {checks}"
+      sp := sp.bind fun st => LeanLight.Spec.LightClient.process_light_client_store_force_update cfg st
+        (natOf slot)
+      t := t.check (observedSpec c sp == checks)
+        s!"{name} step {i}: the specification's force_update {observedSpec c sp}, expected {checks}"
+      previous := checks
     | "upgrade_store" :: _ :: checks =>
       t := t.check (observed c s == checks) s!"{name} step {i}: upgrade_store: store {observed c s}, expected {checks}"
+      t := t.check (observedSpec c sp == checks)
+        s!"{name} step {i}: the specification's upgrade_store {observedSpec c sp}, expected {checks}"
       previous := checks
     | _ => t := t.check false s!"{name} step {i}: unknown step"
   return t
-
-/-- `is_better_update(new, old)` as the specification writes it
-(`altair/light-client/sync-protocol.md`), transcribed for the tests: `Store.isBetter`, the
-lexicographic order on `Store.rank` that runs, must agree with it on every pair. -/
-def isBetterSpec (c : Forks.Chain) (new old : Update) : Bool :=
-  let p := c.preset
-  let nn := new.signers p
-  let on := old.signers p
-  let nsm := Store.supermajority p nn
-  let osm := Store.supermajority p on
-  if nsm != osm then nsm
-  else if !nsm && nn != on then decide (nn > on)
-  else
-    let nrel := new.isSyncCommitteeUpdate && c.periodAt new.slot == c.periodAt new.signatureSlot
-    let orel := old.isSyncCommitteeUpdate && c.periodAt old.slot == c.periodAt old.signatureSlot
-    if nrel != orel then nrel
-    else
-      let nfin := new.isFinalityUpdate
-      let ofin := old.isFinalityUpdate
-      if nfin != ofin then nfin
-      else
-        let nscf := c.periodAt new.finalized.beacon.slot == c.periodAt new.slot
-        let oscf := c.periodAt old.finalized.beacon.slot == c.periodAt old.slot
-        if nfin && nscf != oscf then nscf
-        else if nn != on then decide (nn > on)
-        else if new.slot != old.slot then decide (new.slot < old.slot)
-        else decide (new.signatureSlot < old.signatureSlot)
 
 /-- The `update_ranking` case of a fork. -/
 def runRanking (t : Tally) (dir : System.FilePath) (fork : Forks.ForkName) (name : String) :
@@ -154,7 +179,8 @@ def runRanking (t : Tally) (dir : System.FilePath) (fork : Forks.ForkName) (name
       let uj := us[j]'hj.2.1
       if i < j && !(Store.isBetter c ui uj && !Store.isBetter c uj ui) then wrong := wrong + 1
       if i == j && Store.isBetter c ui uj then wrong := wrong + 1
-      if Store.isBetter c ui uj != isBetterSpec c ui uj then differ := differ + 1
+      if Store.isBetter c ui uj != LeanLight.Spec.LightClient.is_better_update (specConfig c)
+          (toSpecUpdate ui) (toSpecUpdate uj) then differ := differ + 1
   t := t.check (wrong == 0) s!"{name}: {wrong} pairs out of order"
   t := t.check (differ == 0) s!"{name}: isBetter differs from the specification's on {differ} pairs"
   return t

@@ -20,6 +20,12 @@ lean_lib EthLibBls where
   srcDir := "../proofs"
   globs := #[.submodules `LeanLightProofs.Vendor.EthLib]
 
+/-- consensus-specs' sync protocol transcribed (`LeanLightProofs.Spec.SyncProtocol`, Lean core
+and `LeanLight` only), run on the `sync` vectors beside the store. -/
+lean_lib LeanLightSpec where
+  srcDir := "../proofs"
+  globs := #[.one `LeanLightProofs.Spec.SyncProtocol]
+
 /-- The minimal preset's decoders and a development chain table (tests only). -/
 lean_lib LeanLightDev
 

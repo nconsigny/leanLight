@@ -9,7 +9,7 @@ written):
 
 | File | What |
 |---|---|
-| `meta.txt` | `key value` lines: `network`, `now_ms` (the clock at recording), `checkpoint`, the forks of the bootstrap and of the finality and optimistic updates, `anchor_hash`, `block`, `periods` (how many sync periods the updates span) |
+| `meta.txt` | `key value` lines: `network`, `now_ms` (the clock after the last light-client fetch), `checkpoint`, the forks of the bootstrap and of the finality and optimistic updates, `anchor_hash`, `block`, `periods` (how many sync periods the updates span) |
 | `bootstrap.ssz` | `light_client/bootstrap/{checkpoint}` |
 | `updates.ssz` | one `light_client/updates` answer from the checkpoint's period to the clock's (SSZ chunks) |
 | `finality.ssz`, `optimistic.ssz` | the finality and optimistic updates |
@@ -36,7 +36,10 @@ def record (cfg : Config) (dir : System.FilePath)
     (queries : List (String × (ByteArray → List (String × Json)))) : IO Unit := do
   IO.FS.createDirAll dir
   let root ← checkpointOf cfg
-  let now ← nowMs
+  -- The clock is read again after each fetch: an update signed during the fetch has a signature
+  -- slot after the earlier reading, which `current_slot >= signature_slot` refuses. The replay
+  -- runs at the last reading.
+  let mut now ← nowMs
   let lc := s!"{cfg.consensus}/eth/v1/beacon/light_client"
   let (bbs, bv) ← orDie "bootstrap" (← getSsz s!"{lc}/bootstrap/{toHex root}")
   let some bfork := bv.bind forkOfName | die s!"bootstrap: fork {bv} unknown"
@@ -46,6 +49,7 @@ def record (cfg : Config) (dir : System.FilePath)
   let cur := cfg.chain.periodAt (cfg.chain.slotOf now)
   let count := min 128 (cur - p + 1)
   let (ubs, _) ← orDie "updates" (← getSsz s!"{lc}/updates?start_period={p}&count={count}")
+  now ← nowMs
   let some chunks := Ssz.parseUpdates ubs | die "updates: bad framing"
   let mut s := s0
   for ch in chunks do
@@ -55,6 +59,7 @@ def record (cfg : Config) (dir : System.FilePath)
   for (k, path, file) in [(Codec.Kind.finality, "finality_update", "finality"),
       (.optimistic, "optimistic_update", "optimistic")] do
     let (bs, v) ← orDie path (← getSsz s!"{lc}/{path}")
+    now ← nowMs
     let some f := v.bind forkOfName | die s!"{path}: fork {v} unknown"
     s := (Driver.feed cfg.chain s now k (.name f) bs).1
     forks := forks ++ [(file, f)]

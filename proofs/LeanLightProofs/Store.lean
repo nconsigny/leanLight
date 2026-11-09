@@ -45,16 +45,18 @@ signature period, the age bound, the signature) and `afterBls` decides the rest.
 * **25h, age.** Every accepted update had `effNow − slotTime(finalized) ≤ MAX_AGE` before and
   after its attested slot counted (`receive_accepted_fresh`); every anchor answered is within it
   (`anchored_fresh`); the bootstrap too (`bootstrap_sound`).
-* **25i, the clock.** `effNow` is the clock or the newest verified attested slot's time,
+* **25i, the clock.** Every update that passes was signed at or before the clock's slot
+  (`Passed.clock`, the specification's `current_slot ≥ signature_slot`). `effNow` is the clock or
+  the newest verified attested slot's time,
   whichever is later (`effNow_eq`); only an update that `Passed`, BLS included, moves the newest
   slot (`receive_newestSlot`); a later clock never makes an update acceptable
   (`fresh_antitone`, `receive_accepted_antitone`); "clock behind" is the clock's slot before the
   newest verified one (`clockBehind_iff`).
 
-What is not proved here: that `process` is the specification's `process_light_client_update`
-without the forced update and the optimistic header (reviewed against consensus-specs, and
-checked by its `sync` vectors, `leanlight-store-test`), and that the SSZ decoders are
-`deserialize` (25a, tested).
+That `receive` is the specification's `process_light_client_update` on the updates it accepts
+is proved in `LeanLightProofs.SyncProtocol`, against consensus-specs' sync protocol transcribed
+(`LeanLightProofs.Spec.SyncProtocol`); that the SSZ decoders are `deserialize` in
+`LeanLightProofs.SszDecode`.
 -/
 
 namespace LeanLight.Lc.Store
@@ -71,6 +73,7 @@ structure Passed (c : Chain) (s : Store) (now : Nat) (u : Update) (com : Committ
     Prop where
   notHalted : s.halted = none
   form : formOk c u = true
+  clock : u.signatureSlot ≤ c.slotOf now
   committee : committeeFor c s (c.periodAt u.signatureSlot) = some (com, live)
   fresh : fresh c s now = true
   signature : verifySignature c com u = true
@@ -88,23 +91,26 @@ theorem receive_cases (c : Chain) (s : Store) (now : Nat) (u : Update) :
     · rename_i hf
       split
       · exact .inl rfl
-      · rename_i com live hcom
+      · rename_i hc
         split
         · exact .inl rfl
-        · rename_i hfr
+        · rename_i com live hcom
           split
           · exact .inl rfl
-          · rename_i hsig
-            refine .inr ⟨com, live, ⟨?_, ?_, hcom, ?_, ?_⟩, rfl⟩
-            · simpa using hh
-            · simpa using hf
-            · simpa using hfr
-            · simpa using hsig
+          · rename_i hfr
+            split
+            · exact .inl rfl
+            · rename_i hsig
+              refine .inr ⟨com, live, ⟨?_, ?_, by omega, hcom, ?_, ?_⟩, rfl⟩
+              · simpa using hh
+              · simpa using hf
+              · simpa using hfr
+              · simpa using hsig
 
 /-- The verdicts of an update that did not pass: the store is unchanged. -/
 theorem receive_cases_verdict (c : Chain) (s : Store) (now : Nat) (u : Update) :
     (receive c s now u = (s, .halted) ∧ s.halted.isSome) ∨ receive c s now u = (s, .malformed) ∨
-      receive c s now u = (s, .unknownPeriod) ∨ receive c s now u = (s, .tooOld) ∨
+      receive c s now u = (s, .future) ∨ receive c s now u = (s, .unknownPeriod) ∨ receive c s now u = (s, .tooOld) ∨
       receive c s now u = (s, .badSignature) ∨
       ∃ com live, Passed c s now u com live ∧ receive c s now u = afterBls c s now u live := by
   unfold receive
@@ -116,18 +122,22 @@ theorem receive_cases_verdict (c : Chain) (s : Store) (now : Nat) (u : Update) :
     · rename_i hf
       split
       · exact .inr (.inr (.inl rfl))
-      · rename_i com live hcom
+      · rename_i hc
         split
         · exact .inr (.inr (.inr (.inl rfl)))
-        · rename_i hfr
+        · rename_i com live hcom
           split
           · exact .inr (.inr (.inr (.inr (.inl rfl))))
-          · rename_i hsig
-            refine .inr (.inr (.inr (.inr (.inr ⟨com, live, ⟨?_, ?_, hcom, ?_, ?_⟩, rfl⟩))))
-            · simpa using hh
-            · simpa using hf
-            · simpa using hfr
-            · simpa using hsig
+          · rename_i hfr
+            split
+            · exact .inr (.inr (.inr (.inr (.inr (.inl rfl)))))
+            · rename_i hsig
+              refine .inr (.inr (.inr (.inr (.inr (.inr
+                ⟨com, live, ⟨?_, ?_, by omega, hcom, ?_, ?_⟩, rfl⟩)))))
+              · simpa using hh
+              · simpa using hf
+              · simpa using hfr
+              · simpa using hsig
 
 /-! ## What `formOk` says -/
 
@@ -136,8 +146,14 @@ theorem formOk_parts {c : Chain} {u : Update} (h : formOk c u = true) :
       u.finalized.beacon.slot ≤ u.slot ∧ isValidHeader c u.attested = true ∧
       finalityOk c u = true ∧ nextOk c u = true := by
   simp only [formOk, Bool.and_eq_true, decide_eq_true_eq] at h
-  obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, -⟩ := h
   exact ⟨h1, h2, h3, h4, h5, h6⟩
+
+/-- `signature_slot` is a `uint64`. -/
+theorem formOk_uint64 {c : Chain} {u : Update} (h : formOk c u = true) :
+    u.signatureSlot < 2 ^ 64 := by
+  simp only [formOk, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.2
 
 /-- Two thirds of the committee: `3·signers ≥ 2·SYNC_COMMITTEE_SIZE`. -/
 theorem formOk_supermajority {c : Chain} {u : Update} (h : formOk c u = true) :
@@ -175,7 +191,8 @@ theorem finalityOk_pos {c : Chain} {u : Update} (h : finalityOk c u = true)
 committee's root at the gindex of the attested slot's fork under the attested state root. -/
 theorem nextOk_empty {c : Chain} {u : Update} (h : nextOk c u = true) :
     (u.isSyncCommitteeUpdate = false → committeeEmpty u.next = true) ∧
-      (u.isSyncCommitteeUpdate = true → isValidNormalizedBranch (committeeRoot c.preset u.next)
+      (u.isSyncCommitteeUpdate = true → u.next.pubkeys.size = c.preset.committeeSize ∧
+        isValidNormalizedBranch (committeeRoot c.preset u.next)
         u.nextBranch (nextGindex c u.slot) u.attested.beacon.stateRoot = true) := by
   unfold nextOk at h
   constructor
@@ -287,7 +304,27 @@ theorem moveAnchor_anchor (c : Chain) (s : Store) (u : Update) :
     · split <;> exact .inl rfl
 
 /-- The store after `process` at the update's anchor step: `best` set, the anchor moved. -/
-abbrev bested (c : Chain) (s : Store) (u : Update) : Store := moveAnchor c (keepBest c s u) u
+abbrev bested (c : Chain) (s : Store) (u : Update) : Store := moveAnchor c (track c s u) u
+
+theorem track_frame (c : Chain) (s : Store) (u : Update) :
+    (track c s u).finalized = s.finalized ∧ (track c s u).current = s.current ∧
+      (track c s u).next = s.next ∧ (track c s u).newestSlot = s.newestSlot ∧
+      (track c s u).halted = s.halted ∧ (track c s u).checkpoints = s.checkpoints ∧
+      (track c s u).roots = s.roots ∧ (track c s u).anchor = s.anchor := by
+  unfold track
+  dsimp only
+  split <;> exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem bested_frame (c : Chain) (s : Store) (u : Update) :
+    (bested c s u).finalized = s.finalized ∧ (bested c s u).current = s.current ∧
+      (bested c s u).next = s.next ∧ (bested c s u).newestSlot = s.newestSlot ∧
+      (bested c s u).halted = s.halted ∧ (bested c s u).checkpoints = s.checkpoints ∧
+      (bested c s u).roots = s.roots := by
+  have hm := moveAnchor_frame c (track c s u) u
+  have ht := track_frame c s u
+  exact ⟨hm.1.trans ht.1, hm.2.1.trans ht.2.1, hm.2.2.1.trans ht.2.2.1,
+    hm.2.2.2.1.trans ht.2.2.2.1, hm.2.2.2.2.1.trans ht.2.2.2.2.1,
+    hm.2.2.2.2.2.1.trans ht.2.2.2.2.2.1, hm.2.2.2.2.2.2.trans ht.2.2.2.2.2.2.1⟩
 
 theorem process_cases (c : Chain) (s : Store) (u : Update) :
     process c s u = apply c (bested c s u) u ∨ process c s u = (bested c s u, .accepted false false) := by
@@ -300,7 +337,7 @@ theorem process_cases (c : Chain) (s : Store) (u : Update) :
 theorem process_frame (c : Chain) (s : Store) (u : Update) :
     (process c s u).1.newestSlot = s.newestSlot ∧ (process c s u).1.halted = s.halted ∧
       (process c s u).1.checkpoints = s.checkpoints ∧ (process c s u).1.roots = s.roots := by
-  have hm := moveAnchor_frame c (keepBest c s u) u
+  have hm := bested_frame c s u
   rcases process_cases c s u with h | h <;> rw [h]
   · have ha := apply_frame c (bested c s u) u
     exact ⟨ha.1.trans hm.2.2.2.1, ha.2.1.trans hm.2.2.2.2.1, ha.2.2.1.trans hm.2.2.2.2.2.1,
@@ -320,7 +357,7 @@ theorem process_finalized (c : Chain) (s : Store) (u : Update) :
     (process c s u).1.finalized = s.finalized ∨
       ((process c s u).1.finalized = u.finalized ∧
         s.finalized.beacon.slot < u.finalized.beacon.slot) := by
-  have hm := (moveAnchor_frame c (keepBest c s u) u).1
+  have hm := (bested_frame c s u).1
   rcases process_cases c s u with h | h <;> rw [h]
   · rcases apply_finalized c (bested c s u) u with h' | h'
     · exact .inl (h'.trans hm)
@@ -333,7 +370,7 @@ theorem process_committees (c : Chain) (s : Store) (u : Update) :
       (∃ nc, learn c u = some nc ∧ (process c s u).1.next = nc ∧
         ((s.next = none ∧ (process c s u).1.current = s.current) ∨
           (∃ n, s.next = some n ∧ (process c s u).1.current = n))) := by
-  have hm := moveAnchor_frame c (keepBest c s u) u
+  have hm := bested_frame c s u
   rcases process_cases c s u with h | h <;> rw [h]
   · rcases apply_committees c (bested c s u) u with h' | ⟨nc, hl, hn, h'⟩
     · exact .inl ⟨h'.1.trans hm.2.1, h'.2.trans hm.2.2.1⟩
@@ -346,7 +383,8 @@ theorem process_anchor (c : Chain) (s : Store) (u : Update) :
     (process c s u).1.anchor = s.anchor ∨
       ((process c s u).1.anchor = some ⟨u.attested, u.signers c.preset, u.signatureSlot⟩ ∧
         ∀ a ∈ s.anchor, a.header.beacon.slot < u.slot) := by
-  have hm := moveAnchor_anchor c (keepBest c s u) u
+  have hm := moveAnchor_anchor c (track c s u) u
+  rw [(track_frame c s u).2.2.2.2.2.2.2] at hm
   rcases process_cases c s u with h | h <;> rw [h]
   · rw [(apply_frame c (bested c s u) u).2.2.2.2]; exact hm
   · exact hm
@@ -366,17 +404,22 @@ theorem fresh_retain (c : Chain) (s : Store) (now now' : Nat) (u : Update) :
 theorem relevant_retain (c : Chain) (s : Store) (now : Nat) (u u' : Update) :
     relevant c (retain c s now u) u' = relevant c s u' := rfl
 
+theorem nextMatches_retain (c : Chain) (s : Store) (now : Nat) (u u' : Update) :
+    nextMatches c (retain c s now u) u' = nextMatches c s u' := rfl
+
 /-- What `afterBls` does: a conflict halts the store; else, the update kept, it stops (compared,
-too old, not relevant), or, live, fresh with its slot counted and relevant, it is processed. -/
+too old, not relevant, another next committee), or, live, fresh with its slot counted, relevant
+and with the store's next committee, it is processed. -/
 theorem afterBls_cases (c : Chain) (s : Store) (now : Nat) (u : Update) (live : Bool) :
     (∃ k, conflictOf c (counted s u) u = some k ∧
         afterBls c s now u live = ({ counted s u with halted := some k }, .conflict)) ∨
       (conflictOf c (counted s u) u = none ∧
         afterBls c s now u live = (retain c (counted s u) now u, (afterBls c s now u live).2) ∧
         ((afterBls c s now u live).2 = .compared ∨ (afterBls c s now u live).2 = .tooOld ∨
-          (afterBls c s now u live).2 = .irrelevant)) ∨
+          (afterBls c s now u live).2 = .irrelevant ∨
+          (afterBls c s now u live).2 = .nextMismatch)) ∨
       (conflictOf c (counted s u) u = none ∧ live = true ∧ fresh c (counted s u) now = true ∧
-        relevant c (counted s u) u = true ∧
+        (relevant c (counted s u) u && nextMatches c (counted s u) u) = true ∧
         afterBls c s now u live = process c (retain c (counted s u) now u) u) := by
   cases hk : conflictOf c (counted s u) u with
   | some k =>
@@ -395,9 +438,14 @@ theorem afterBls_cases (c : Chain) (s : Store) (now : Nat) (u : Update) (live : 
         · simp only [counted] at hf hv
           exact .inr (.inl ⟨rfl, by simp [afterBls, hk, fresh_retain, hf, relevant_retain, hv],
             by simp [afterBls, hk, fresh_retain, hf, relevant_retain, hv]⟩)
-        · simp only [counted] at hf hv
-          exact .inr (.inr ⟨rfl, rfl, rfl, rfl,
-            by simp [afterBls, hk, fresh_retain, hf, relevant_retain, hv]⟩)
+        · cases hm : nextMatches c (counted s u) u
+          · simp only [counted] at hf hv hm
+            exact .inr (.inl ⟨rfl, by simp [afterBls, hk, fresh_retain, hf, relevant_retain, hv,
+              nextMatches_retain, hm], by simp [afterBls, hk, fresh_retain, hf, relevant_retain, hv,
+              nextMatches_retain, hm]⟩)
+          · simp only [counted] at hf hv hm
+            exact .inr (.inr ⟨rfl, rfl, rfl, by simp [hv, hm],
+              by simp [afterBls, hk, fresh_retain, hf, relevant_retain, hv, nextMatches_retain, hm]⟩)
 
 /-! ## What `receive` can change (25f) -/
 
@@ -485,7 +533,7 @@ theorem receive_committees (c : Chain) (s : Store) (now : Nat) (u : Update) :
             · rfl
           have hb := (nextOk_empty (formOk_parts hp.form).2.2.2.2.2).2 hsc
           rw [← (ofSync_keys hs).2.2.2] at hb
-          exact .inr ⟨n, hn, hs, hb⟩
+          exact .inr ⟨n, hn, hs, hb.2⟩
 
 theorem periodAt_mono (c : Chain) {a b : Nat} (h : a ≤ b) : c.periodAt a ≤ c.periodAt b := by
   unfold Chain.periodAt Chain.epochAt
@@ -545,7 +593,8 @@ theorem receive_halts_on_conflict {c : Chain} {s : Store} {now : Nat} {u : Updat
     (hk : conflictOf c (counted s u) u = some k) :
     receive c s now u = ({ counted s u with halted := some k }, .conflict) := by
   have hh : s.halted.isSome = false := by simp [hp.notHalted]
-  simp only [receive, hh, hp.form, hp.committee, hp.fresh, hp.signature, Bool.false_eq_true,
+  have hc : ¬ c.slotOf now < u.signatureSlot := by have := hp.clock; omega
+  simp only [receive, hh, hp.form, hc, hp.committee, hp.fresh, hp.signature, Bool.false_eq_true,
     ite_false, Bool.not_true]
   unfold afterBls
   simp only [counted] at hk
@@ -557,12 +606,12 @@ theorem receive_conflict {c : Chain} {s : Store} {now : Nat} {u : Update}
     (h : (receive c s now u).2 = .conflict) :
     ∃ com live k, Passed c s now u com live ∧ conflictOf c (counted s u) u = some k ∧
       (receive c s now u).1.halted = some k := by
-  rcases receive_cases_verdict c s now u with ⟨he, -⟩ | he | he | he | he | ⟨com, live, hp, he⟩
+  rcases receive_cases_verdict c s now u with ⟨he, -⟩ | he | he | he | he | he | ⟨com, live, hp, he⟩
   all_goals try (rw [he] at h; cases h)
   rw [he] at h ⊢
   rcases afterBls_cases c s now u live with ⟨k, hk, ha⟩ | ⟨-, ha, hv⟩ | ⟨-, -, -, -, ha⟩
   · exact ⟨com, live, k, hp, hk, by rw [ha]⟩
-  · rcases hv with hv | hv | hv <;> rw [hv] at h <;> cases h
+  · rcases hv with hv | hv | hv | hv <;> rw [hv] at h <;> cases h
   · rw [ha] at h; exact absurd h (process_not_conflict c _ u)
 
 /-- What a conflict holds: for finality, a checkpoint the store kept for the update's finalized
@@ -683,12 +732,12 @@ before it, and again with its attested slot counted. -/
 theorem receive_accepted_fresh {c : Chain} {s : Store} {now : Nat} {u : Update} {a l : Bool}
     (h : (receive c s now u).2 = .accepted a l) :
     fresh c s now = true ∧ fresh c (counted s u) now = true := by
-  rcases receive_cases_verdict c s now u with ⟨he, -⟩ | he | he | he | he | ⟨com, live, hp, he⟩
+  rcases receive_cases_verdict c s now u with ⟨he, -⟩ | he | he | he | he | he | ⟨com, live, hp, he⟩
   all_goals try (rw [he] at h; cases h)
   rw [he] at h
   rcases afterBls_cases c s now u live with ⟨k, -, ha⟩ | ⟨-, ha, hv⟩ | ⟨-, -, hf, -, ha⟩
   · rw [ha] at h; cases h
-  · rcases hv with hv | hv | hv <;> rw [hv] at h <;> cases h
+  · rcases hv with hv | hv | hv | hv <;> rw [hv] at h <;> cases h
   · exact ⟨hp.fresh, hf⟩
 
 /-- An anchor is answered only within `MAX_AGE`, and only from a store not halted. -/
@@ -775,7 +824,7 @@ theorem bootstrap_sound {c : Chain} {cp : ByteArray} {now : Nat} {b : Bootstrap}
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := hc
+    obtain ⟨⟨⟨⟨h1, h2⟩, -⟩, h3⟩, h4⟩ := hc
     simp only [Option.map_eq_some_iff] at h
     obtain ⟨com, hcom, rfl⟩ := h
     exact ⟨h1, h2, h3, h4, hcom, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
@@ -849,13 +898,14 @@ theorem decodeBootstrap_fork {codec : Codec.Codec} {c : Chain} {tag : Codec.Tag}
 /-- **`signature_slot` is not signed (25d).** Another signature slot after the attested slot
 changes nothing `formOk` checks. -/
 theorem formOk_signatureSlot (c : Chain) (u : Update) {s' : Nat} (h : u.slot < u.signatureSlot)
-    (h' : u.slot < s') : formOk c { u with signatureSlot := s' } = formOk c u := by
+    (h' : u.slot < s') (hb : u.signatureSlot < 2 ^ 64) (hb' : s' < 2 ^ 64) :
+    formOk c { u with signatureSlot := s' } = formOk c u := by
   have hf : finalityOk c { u with signatureSlot := s' } = finalityOk c u := rfl
   have hn : nextOk c { u with signatureSlot := s' } = nextOk c u := rfl
   have hs : ({ u with signatureSlot := s' } : Update).signers c.preset = u.signers c.preset := rfl
   have hl : ({ u with signatureSlot := s' } : Update).slot = u.slot := rfl
   simp only [formOk, hf, hn, hs, hl]
-  rw [decide_eq_true h', decide_eq_true h]
+  rw [decide_eq_true h', decide_eq_true h, decide_eq_true hb, decide_eq_true hb']
 
 /-- Nor the signature check, under one fork version. -/
 theorem verifySignature_signatureSlot (c : Chain) (com : Committee) (u : Update) {s' : Nat}

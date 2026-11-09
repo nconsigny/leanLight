@@ -55,6 +55,23 @@ What the proofs cover, in brief (the statements are in the files):
   of it (`decode_canonical`, `decode_injective_bytes`; `SszDecode.lean`, `SszDecodeElectra.lean`);
   `hash_tree_root` of each light-client container is ssz-specs'; a branch verifies exactly when
   the leaf is in the tree (`Ssz*.lean`).
+- **The sync protocol** (`Spec/SyncProtocol.lean`, `SyncProtocol.lean`): consensus-specs
+  v1.7.0-beta.5's light-client sync protocol is transcribed function by function
+  (`initialize_light_client_store`, `validate_light_client_update`, `apply_light_client_update`,
+  `process_light_client_update`, `process_light_client_store_force_update`, `is_better_update`,
+  the fork-dependent gindices and `is_valid_light_client_header` from Altair to Gloas), and
+  leanLight's store is proved to refine it: every update the store accepts, the specification's
+  `process_light_client_update` accepts at the same clock, and the two stores (finalized header,
+  committees, best update, optimistic header, participation counters) agree after it; every other
+  update leaves the specification's store as it was (`receive_refines`). So every store the
+  client reaches is one the specification reaches from the same checkpoint (`reaches_spec`). The
+  runtime's ranking is `is_better_update` (`isBetter_spec`), its header check implies
+  `is_valid_light_client_header` (`isValidHeader_spec`), its branch check phase0's
+  `is_valid_merkle_branch` (`normalized_of_runtime`), and its signature check (the aggregate key
+  less the absent keys) `FastAggregateVerify` over the participants' keys
+  (`verifySignature_spec`). The chain table agrees with mainnet's and Sepolia's `config.yaml`, every
+  fork from Altair on (`agrees_mainnet`, `agrees_sepolia`). The transcription itself is run on
+  consensus-specs' `sync` and `update_ranking` vectors beside the store, and matches them.
 - **The store**: bootstrap binds the checkpoint; an update is accepted only after every check of
   the sync protocol, BLS included; conflicts halt the store; the age bound and the clock
   (`Store.lean`, `Forks.lean`).
@@ -65,7 +82,7 @@ What the proofs cover, in brief (the statements are in the files):
   (`Anchor.lean`, `Trie.lean`, `Spec/MptTrie.lean`, `Inclusion.lean`).
 
 `scripts/check-axioms.sh` audits every constant of `LeanLight` and `LeanLightProofs` (about
-7,000, 3,574 of them theorems): each may rest only on `propext`, `Classical.choice` and
+7,400, 3,752 of them theorems): each may rest only on `propext`, `Classical.choice` and
 `Quot.sound`, so no `sorry` and no `native_decide`. `scripts/check-kernel.sh` replays every
 module through Lean's kernel. `scripts/check-runtime.sh` refuses any `@[implemented_by]`,
 `@[extern]`, `opaque` or `unsafe` in `LeanLight/`. CI runs all three on every push.
@@ -76,12 +93,15 @@ What a proof gives, what is assumed, and what is trusted without either.
 
 **Proved.** The theorems are refinements: the runtime definition equals, or is sound against, a
 readable specification (ssz-specs, EthLib's BLS12-381, VCVio's SHA-256 and Keccak-256, Mathlib's
-group law, the consensus specs' store rules transcribed, the Yellow Paper's trie). A mistake in one
-of those specifications would carry into leanLight; the theorems do not prove the light client
-secure, they prove it computes what those specifications say. The store's statements (bootstrap
-binds the checkpoint, acceptance only after every check, conflicts halt) are about leanLight's own
-store, whose rules are the consensus specs' as transcribed (`docs/spec-16-light-client.md`,
-"The protocol").
+group law, consensus-specs' sync protocol transcribed in `proofs/LeanLightProofs/Spec/SyncProtocol.lean`,
+the Yellow Paper's trie). A mistake in one of those specifications would carry into leanLight;
+the theorems do not prove the light client secure, they prove it computes what those
+specifications say. The transcription of the sync protocol is checked against consensus-specs'
+own `sync` and `update_ranking` vectors (`leanlight-store-test` runs it), and the store is proved
+to refine it (`reaches_spec`): leanLight refuses more updates than the specification (below two
+thirds of the committee, before Electra, older than `MAX_AGE`, after a conflict) and never calls
+the forced update the specification makes optional, but every update it accepts has the effect
+the specification gives it.
 
 **Assumed, checked by test vectors.** That the pairing is bilinear and non-degenerate on
 G1 × G2: named hypotheses in the BLS theorems (`PairingCheckIs`, `PairingNonDegenerate`; `H_vec`
@@ -91,7 +111,8 @@ the Miller loop is EthLib's are theorems (`hashInG2`, `finalExp_toGF`, `millerLo
 
 **Assumed, the chain's.** That a sync committee's keys are points of G1 and its
 `aggregate_pubkey` their sum (`Committee.Consistent`, a hypothesis of the signature theorems in
-`Signers.lean`). The beacon state's committees are: each key passed KeyValidate at deposit, and
+`Signers.lean`; `Valid` in `SyncProtocol.lean`, where each key also passes KeyValidate, as the
+specification's `FastAggregateVerify` requires). The beacon state's committees are: each key passed KeyValidate at deposit, and
 the aggregate is `eth_aggregate_pubkeys` of the keys. The light client takes a committee only
 under a root the previous committee signed (or the checkpoint's), so this is the trust it
 already places in that committee; Helios and the consensus specs' light client rest on the same.
@@ -121,7 +142,9 @@ participants' sum on a consistent committee (`signersKey?_eq`).
   the anchor stale; it cannot make a value pass that those checks refuse. The loop itself is not
   proved.
 - `curl`, the operating system and the clock: a clock set back can make an old checkpoint look
-  fresh (`docs/spec-16-light-client.md`, "The clock").
+  fresh (`docs/spec-16-light-client.md`, "The clock"), and, as in the specification
+  (`current_slot >= signature_slot`), refuses updates signed after the clock's slot until it
+  catches up (verdict "signature slot after the clock's slot").
 - **The checkpoint, when you opt in to fetching one.** With `--unsafe-untrusted-checkpoint`
   instead of `--checkpoint`, leanlight takes the beacon node's finalized root on trust and says so
   on standard error. Everything after is checked against that root: give `--checkpoint` with a root
