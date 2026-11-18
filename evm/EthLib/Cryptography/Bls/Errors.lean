@@ -1,0 +1,101 @@
+module
+
+/-!
+# `Bls.Errors`
+
+Typed errors for the BLS surface.
+
+The BLS functions do no I/O, so a fallible one returns its result or one of these errors.
+
+The C exports pass the code and the message of an error to the bindings.
+-/
+
+@[expose] public section
+
+namespace EthLib.Cryptography.Bls
+
+/-- Every way a BLS operation can reject its input. -/
+inductive BlsError where
+  /-- The pubkey list was empty. -/
+  | emptyPubkeyList
+  /-- A pubkey was not `BYTES_PER_PUBKEY` bytes long. -/
+  | badPubkeySize (actual : Nat)
+  /-- Pubkey bytes failed `KeyValidate`.
+
+  The cause is a bad encoding, a point off the curve, the wrong subgroup, or the point at infinity.
+
+  When the pubkey came from an array, `index` is its position. -/
+  | invalidPubkey (index : Option Nat)
+  /-- G1 point bytes could not be decompressed. -/
+  | invalidG1Point
+  /-- G2 point bytes could not be decompressed. -/
+  | invalidG2Point
+  /-- `KeyValidate` rejected the point at infinity. -/
+  | pointAtInfinity
+  /-- A point was not in the prime-order subgroup. -/
+  | notInSubgroup
+  /-- Bytes did not represent a canonical field element (value ≥ modulus). -/
+  | nonCanonicalFieldElement
+  /-- A field element had no square root (not a quadratic residue). -/
+  | notASquare
+  /-- `expand_message_xmd` was asked for more than 65535 bytes. -/
+  | expandMessageOutputTooLong (len : Nat)
+  /-- `expand_message_xmd` would need more than 255 hash blocks. -/
+  | expandMessageTooManyBlocks (ell : Nat)
+  /-- The aggregation got no signature. -/
+  | emptySignatureList
+  /-- Secret key bytes were not 32 bytes of an integer in `[1, r - 1]`. -/
+  | invalidSecretKey
+  /-- Key generation got fewer than 32 bytes of input keying material. -/
+  | keyGenIkmTooShort (size : Nat)
+  /-- Every attempt of key generation gave a multiple of `r`. -/
+  | keyGenNoKey
+  /-- HKDF rejected its input during key generation. -/
+  | keyGenHkdf
+
+/-- Human-readable description, used at the C-ABI boundary. -/
+def BlsError.message : BlsError → String
+  | .emptyPubkeyList            => "empty pubkey list"
+  | .badPubkeySize actual       => s!"bad pubkey size: {actual}"
+  | .invalidPubkey (some index) => s!"invalid pubkey at index {index}"
+  | .invalidPubkey none         => "invalid pubkey"
+  | .invalidG1Point             => "invalid G1 point"
+  | .invalidG2Point             => "invalid G2 point"
+  | .pointAtInfinity            => "point at infinity"
+  | .notInSubgroup              => "point not in subgroup"
+  | .nonCanonicalFieldElement   => "non-canonical field element"
+  | .notASquare                 => "not a square"
+  | .expandMessageOutputTooLong len =>
+      s!"expand_message_xmd output too long: {len}"
+  | .expandMessageTooManyBlocks ell =>
+      s!"expand_message_xmd too many blocks: {ell}"
+  | .emptySignatureList         => "empty signature list"
+  | .invalidSecretKey           => "invalid secret key"
+  | .keyGenIkmTooShort size     => s!"input keying material too short: {size} bytes"
+  | .keyGenNoKey                => "key generation found no key"
+  | .keyGenHkdf                 => "HKDF failed in key generation"
+
+/-- The stable code of an error, one per constructor, for the C exports.
+
+The code ignores the arguments of the constructor, which the message carries.
+
+A new constructor takes a new code, so that each code keeps its meaning. -/
+def BlsError.code : BlsError → UInt32
+  | .emptyPubkeyList              => 1
+  | .badPubkeySize _              => 2
+  | .invalidPubkey _              => 3
+  | .invalidG1Point               => 4
+  | .invalidG2Point               => 5
+  | .pointAtInfinity              => 6
+  | .notInSubgroup                => 7
+  | .nonCanonicalFieldElement     => 8
+  | .notASquare                   => 9
+  | .expandMessageOutputTooLong _ => 10
+  | .expandMessageTooManyBlocks _ => 11
+  | .emptySignatureList           => 12
+  | .invalidSecretKey             => 13
+  | .keyGenIkmTooShort _          => 14
+  | .keyGenNoKey                  => 15
+  | .keyGenHkdf                   => 16
+
+end EthLib.Cryptography.Bls

@@ -1,0 +1,265 @@
+module
+
+public import EthLib.Cryptography.Bls.Compress
+public import EthLib.Cryptography.Hash.Sha256
+public import EthLib.Base.BigEndian
+
+/-!
+# `HashToCurve`
+
+The hash to `G2` of the suite `BLS12381G2_XMD:SHA-256_SSWU_RO_` of RFC 9380.
+
+The steps are the message expansion, the hash to the field, the SSWU map and the 3-isogeny.
+
+The cofactor clearing ends it.
+
+The constants are those of the RFC.
+-/
+
+@[expose] public section
+
+namespace EthLib.Cryptography.Bls.HashToCurve
+
+variable {F : Type} [BaseField F]
+
+open EthLib.Cryptography.Bls
+
+/-! ## `expand_message_xmd` (RFC 9380 §5.3.1) -/
+
+def sha256BlockSize : Nat := 64
+def sha256OutputSize : Nat := 32
+def oversizeDstPrefix : ByteArray :=
+  String.toUTF8 "H2C-OVERSIZE-DST-"
+
+def i2osp (n : Nat) (len : Nat) : ByteArray :=
+  ByteArray.mk <| Array.ofFn (n := len) fun i =>
+    UInt8.ofNat ((n >>> ((len - 1 - i.val) * 8)) &&& 0xff)
+
+def strxor (a b : ByteArray) : ByteArray :=
+  ⟨Array.zipWith (· ^^^ ·) a.data b.data⟩
+
+/-- Expand `msg` into `lenInBytes` pseudo-random bytes via XMD with SHA-256.
+
+Follows RFC 9380 §5.3.1 and §5.3.3.
+
+Oversized DSTs are first shortened with SHA-256, and oversized output requests are rejected. -/
+def expandMessageXmd
+    (msg : ByteArray) (dst : ByteArray) (lenInBytes : Nat)
+    : Except BlsError ByteArray := do
+  let ell := (lenInBytes + sha256OutputSize - 1) / sha256OutputSize
+  if lenInBytes > 65535 then
+    throw (.expandMessageOutputTooLong lenInBytes)
+  if ell > 255 then
+    throw (.expandMessageTooManyBlocks ell)
+  let dst :=
+    if dst.size > 255 then
+      Hash.Sha256.hash (oversizeDstPrefix ++ dst)
+    else
+      dst
+  let zPad := ByteArray.mk (Array.replicate sha256BlockSize 0)
+  let dstPrime := dst ++ i2osp dst.size 1
+  let lIbStr := i2osp lenInBytes 2
+  let msgPrime := zPad ++ msg ++ lIbStr ++ i2osp 0 1 ++ dstPrime
+  let b0 := Hash.Sha256.hash msgPrime
+  let mut bs : Array ByteArray := Array.mkEmpty ell
+  let b1 := Hash.Sha256.hash (b0 ++ i2osp 1 1 ++ dstPrime)
+  bs := bs.push b1
+  let mut prev := b1
+  for i in [2:ell+1] do
+    let bi := Hash.Sha256.hash (strxor b0 prev ++ i2osp i 1 ++ dstPrime)
+    bs := bs.push bi
+    prev := bi
+  let mut out := bs.foldl (· ++ ·) ByteArray.empty
+  return out.extract 0 lenInBytes
+
+/-! ## `hash_to_field` for Fp2 (RFC 9380 §5.2)
+
+Returns `count` Fp2 elements, each derived from `2 * L = 128` bytes of expand-message output. -/
+
+def fpFromBytesL (b : ByteArray) : F :=
+  -- OS2IP into a Nat, then reduce mod p.
+  BaseField.ofNat (Base.bytesToNat b.data.toList)
+
+def hashToFieldFp2
+    (msg : ByteArray) (dst : ByteArray) (count : Nat)
+    : Except BlsError (Vector (Fp2 F) count) := do
+  let l := 64           -- per RFC: ceil((ceil(log2(p)) + k) / 8) = 64 for BLS12-381
+  let m := 2
+  let lenInBytes := count * m * l
+  let uniform ← expandMessageXmd msg dst lenInBytes
+  return Vector.ofFn fun i =>
+    let off0 := l * (i.val * m)
+    let off1 := l * (i.val * m + 1)
+    let c0 := fpFromBytesL (uniform.extract off0 (off0 + l))
+    let c1 := fpFromBytesL (uniform.extract off1 (off1 + l))
+    ⟨c0, c1⟩
+
+/-! ## `sgn0` for Fp / Fp2 (RFC 9380 §4.1) -/
+
+def sgn0Fp (x : F) : Bool := BaseField.sgn0 x
+
+def sgn0Fp2 (x : Fp2 F) : Bool :=
+  let s0 := sgn0Fp x.c0
+  let z0 := BaseField.isZero x.c0
+  let s1 := sgn0Fp x.c1
+  s0 || (z0 && s1)
+
+/-! ## SSWU map onto the 3-isogenous curve `E'` (RFC 9380 §6.6.3) -/
+
+/-- `Z = -(2 + I)` for the BLS12-381 G2 suite. -/
+def Z : Fp2 F := ⟨-(BaseField.ofNat 2), -BaseField.one⟩
+
+/-- `A' = 240 * I`. -/
+def Aprime : Fp2 F := ⟨BaseField.zero, BaseField.ofNat 240⟩
+
+/-- `B' = 1012 * (1 + I)`. -/
+def Bprime : Fp2 F := ⟨BaseField.ofNat 1012, BaseField.ofNat 1012⟩
+
+/-- Simplified SWU onto `E' : y^2 = x^3 + A' * x + B'` (RFC 9380 §6.6.2).
+
+`Z` is not a square in `Fp2`, so one of `g(x1)` and `g(x2)` is a square.
+
+The error is the case where neither is, which the RFC excludes. -/
+def simpleSwu (u : Fp2 F) : Except BlsError (Fp2 F × Fp2 F) := do
+  let u2 := u * u
+  let zu2 := Z * u2
+  let denom := zu2 * zu2 + zu2          -- Z^2·u^4 + Z·u^2
+  let x1 :=
+    if denom.isZero then
+      -- denom = 0 ⇔ Z·u^2 ∈ {0, -1}; the spec falls back to B'/(Z·A').
+      Bprime / (Z * Aprime)
+    else
+      (-Bprime / Aprime) * (Fp2.one + denom.inverse)
+  let gx1 := x1 * x1 * x1 + Aprime * x1 + Bprime
+  match Fp2.sqrt gx1 with
+  | .ok y =>
+    -- The sign of `y` follows the sign of `u`.
+    return (x1, if sgn0Fp2 u = sgn0Fp2 y then y else -y)
+  | .error _ =>
+    let x2 := zu2 * x1
+    let y ← Fp2.sqrt (x2 * x2 * x2 + Aprime * x2 + Bprime)
+    return (x2, if sgn0Fp2 u = sgn0Fp2 y then y else -y)
+
+/-! ## 3-isogeny map `E' → E` (RFC 9380 Appendix E.3)
+
+Each `kI_J` is the Fp2 coefficient `k_(I,J)` written as `c0 + c1·I`. -/
+
+def fp2 (c0 c1 : Nat) : Fp2 F := ⟨BaseField.ofNat c0, BaseField.ofNat c1⟩
+
+-- x_num coefficients
+def k10 : Fp2 F := fp2
+  0x5c759507e8e333ebb5b7a9a47d7ed8532c52d39fd3a042a88b58423c50ae15d5c2638e343d9c71c6238aaaaaaaa97d6
+  0x5c759507e8e333ebb5b7a9a47d7ed8532c52d39fd3a042a88b58423c50ae15d5c2638e343d9c71c6238aaaaaaaa97d6
+def k11 : Fp2 F := fp2
+  0
+  0x11560bf17baa99bc32126fced787c88f984f87adf7ae0c7f9a208c6b4f20a4181472aaa9cb8d555526a9ffffffffc71a
+def k12 : Fp2 F := fp2
+  0x11560bf17baa99bc32126fced787c88f984f87adf7ae0c7f9a208c6b4f20a4181472aaa9cb8d555526a9ffffffffc71e
+  0x8ab05f8bdd54cde190937e76bc3e447cc27c3d6fbd7063fcd104635a790520c0a395554e5c6aaaa9354ffffffffe38d
+def k13 : Fp2 F := fp2
+  0x171d6541fa38ccfaed6dea691f5fb614cb14b4e7f4e810aa22d6108f142b85757098e38d0f671c7188e2aaaaaaaa5ed1
+  0
+
+-- x_den coefficients
+def k20 : Fp2 F := fp2
+  0
+  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaa63
+def k21 : Fp2 F := fp2
+  0xc
+  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaa9f
+
+-- y_num coefficients
+def k30 : Fp2 F := fp2
+  0x1530477c7ab4113b59a4c18b076d11930f7da5d4a07f649bf54439d87d27e500fc8c25ebf8c92f6812cfc71c71c6d706
+  0x1530477c7ab4113b59a4c18b076d11930f7da5d4a07f649bf54439d87d27e500fc8c25ebf8c92f6812cfc71c71c6d706
+def k31 : Fp2 F := fp2
+  0
+  0x5c759507e8e333ebb5b7a9a47d7ed8532c52d39fd3a042a88b58423c50ae15d5c2638e343d9c71c6238aaaaaaaa97be
+def k32 : Fp2 F := fp2
+  0x11560bf17baa99bc32126fced787c88f984f87adf7ae0c7f9a208c6b4f20a4181472aaa9cb8d555526a9ffffffffc71c
+  0x8ab05f8bdd54cde190937e76bc3e447cc27c3d6fbd7063fcd104635a790520c0a395554e5c6aaaa9354ffffffffe38f
+def k33 : Fp2 F := fp2
+  0x124c9ad43b6cf79bfbf7043de3811ad0761b0f37a1e26286b0e977c69aa274524e79097a56dc4bd9e1b371c71c718b10
+  0
+
+-- y_den coefficients
+def k40 : Fp2 F := fp2
+  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffa8fb
+  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffa8fb
+def k41 : Fp2 F := fp2
+  0
+  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffa9d3
+def k42 : Fp2 F := fp2
+  0x12
+  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaa99
+
+/-- The 3-isogeny of RFC 9380 Appendix E.3, from `E'` to the twist `E`.
+
+- `x = x_num / x_den`, where `x_den` is monic of degree 2.
+- `y = y' * y_num / y_den`, where `y_den` is monic of degree 3.
+
+A zero denominator gives the identity point, as RFC 9380 §6.6.3 requires. -/
+def isoMapG2 (xp yp : Fp2 F) : G2 F :=
+  let xp2 := xp * xp
+  let xp3 := xp2 * xp
+  let xNum := k13 * xp3 + k12 * xp2 + k11 * xp + k10
+  let xDen := xp2 + k21 * xp + k20
+  let yNum := k33 * xp3 + k32 * xp2 + k31 * xp + k30
+  let yDen := xp3 + k42 * xp2 + k41 * xp + k40
+  if xDen.isZero || yDen.isZero then G2.zero else ⟨xNum / xDen, yp * yNum / yDen, Fp2.one⟩
+
+/-! ## Cofactor clearing (RFC 9380 Appendix G.3)
+
+Uses the psi endomorphism for the fast Budroni-Pintore method. -/
+
+-- The endomorphism `psi` is a map of the twist, so it is defined with the curve.
+export EthLib.Cryptography.Bls.G2 (frobeniusFp2 c1Psi c2Psi psi)
+
+/-- `c1_psi2 = 1 / 2^((p − 1) / 3)`, lifted into Fp2. -/
+def c1Psi2 : Fp2 F :=
+  let two : F := BaseField.ofNat 2
+  let v : F := BaseField.inverse (BaseField.powNat two ((Fp.modulus - 1) / 3))
+  ⟨v, BaseField.zero⟩
+
+def psi2 (P : G2 F) : G2 F :=
+  if P.z.isZero then P else
+    let (x, y) := P.toAffine
+    ⟨c1Psi2 * x, -y, Fp2.one⟩
+
+/-- Multiply by the negative BLS parameter (`x = -|x|`). -/
+def mulNegX (P : G2 F) : G2 F := G2.neg (G2.mulNat P blsX)
+
+/-- Cofactor clearing for G2 per RFC 9380 G.3. -/
+def clearCofactor (P : G2 F) : G2 F :=
+  let t1 := mulNegX P
+  let t2 := psi P
+  let t3 := psi2 (G2.double P)
+  let t3 := G2.add t3 (G2.neg t2)
+  let t2 := G2.add t1 t2
+  let t2 := mulNegX t2
+  let t3 := G2.add t3 t2
+  let t3 := G2.add t3 (G2.neg t1)
+  G2.add t3 (G2.neg P)
+
+/-- The scalar `h_eff` of the suites for `G2` of BLS12-381, RFC 9380 §8.8.2.
+
+RFC 9380 §7 defines the cofactor clearing as the multiplication by `h_eff`.
+
+The cofactor clearing above uses the faster method of Appendix G.3 instead.
+
+The three hexadecimal parts are the three lines of the value in the RFC. -/
+def H_EFF_G2 : Nat :=
+  0xbc69f08f2ee75b3584c6a0ea91b352888e2a8e9145ad7689986ff0315 * 16 ^ 102 +
+    0x08ffe1329c2f178731db956d82bf015d1212b02ec0ec69d7477c1ae954cbc06689 * 16 ^ 36 +
+    0xf6a359894c0adebbf6b4e8020005aaa95551
+
+/-! ## Top-level pipeline -/
+
+/-- Hash a message + DST to a G2 point on BLS12-381. -/
+def hashToG2 (msg : ByteArray) (dst : ByteArray) : Except BlsError (G2 F) := do
+  let us ← hashToFieldFp2 msg dst 2
+  let (x0, y0) ← simpleSwu us[0]
+  let (x1, y1) ← simpleSwu us[1]
+  return clearCofactor (G2.add (isoMapG2 x0 y0) (isoMapG2 x1 y1))
+
+end EthLib.Cryptography.Bls.HashToCurve
