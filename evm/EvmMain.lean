@@ -11,8 +11,8 @@ leanlight-evm [--network mainnet|sepolia] --consensus-rpc URL[,URL...] --executi
 COMMAND:
   call TO [DATA]       eth_call of TO with DATA (hex) at the anchored block
   create INITCODE      eth_call of a creation with INITCODE (hex): the deployed code it returns
-  estimate TO [DATA]   the least gas, as named in the request, at which the checked call
-                       succeeds: it succeeded at that gas and failed one below
+  estimate TO [DATA]   a gas, as named in the request, at which the checked call succeeds and
+                       one below at which it fails or is refused, both confirmed by checked runs
 ```
 
 It syncs as `leanlight` does, binds the anchored execution block, then runs the call in rounds
@@ -279,9 +279,23 @@ def main (argv : List String) : IO UInt32 := do
           let hi := r.gas.getD (b.el.gasLimit)
           let hi := min hi (a.result.gasUsed + budgets.executionGas)
           let lo := if a.result.gasUsed = 0 then 0 else a.result.gasUsed - 1
-          let (g, _) ← bisect cfg b budgets r d.fetched lo hi
-          emit args.json ([("estimate", jn g)] ++ pf)
-            s!"{g}: the checked call succeeds with gas {g} and fails, or is refused, with {g - 1}\n{ptext}"
+          let (g, fx) ← bisect cfg b budgets r d.fetched lo hi
+          -- what is printed is what two checked runs answered: success at g, not at g - 1
+          let at' (gas : Nat) : IO Outcome := do
+            pure (← loop cfg b budgets { r with gas := some gas } fx 0).ran.outcome
+          let okAt (o : Outcome) : Bool := match o with
+            | .answer a => a.result.ok
+            | _ => false
+          let failsAt (o : Outcome) : Bool := match o with
+            | .answer a => !a.result.ok
+            | .refused .intrinsicGasTooLow => true
+            | _ => false
+          let (atG, below) := (← at' g, ← at' (g - 1))
+          if 0 < g && okAt atG && failsAt below then
+            emit args.json ([("estimate", jn g)] ++ pf)
+              s!"{g}: the checked call succeeds with gas {g} and fails, or is refused, with {g - 1}\n{ptext}"
+          else
+            die s!"estimate: no gas up to {hi} was confirmed by checked runs (at {g}: {(outcomeFields atG).2}; at {g - 1}: {(outcomeFields below).2})"
       | o =>
         let (of, otext) := outcomeFields o
         emit args.json (of ++ pf) s!"estimate: {otext}"
