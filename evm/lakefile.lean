@@ -54,3 +54,13 @@ lean_lib LeanLightEvmCli
 /-- `leanlight-evm`: sync as `leanlight` does, then `call` or `estimate` at the anchored block. -/
 @[default_target] lean_exe «leanlight-evm» where
   root := `EvmMain
+
+/-- The tests' modules. -/
+lean_lib LeanLightEvmTests where
+  globs := #[.submodules `LeanLightEvmTests]
+
+/-- `lake exe leanlight-evm-test [--quick]`, run from `evm/`: recorded mainnet and Sepolia calls
+(`tests/vectors`), their sweeps, the proof-backed tier through leanLight's readers, synthetic
+worlds against `LeanLightEvm.reference`, and cases built to be refused. -/
+lean_exe «leanlight-evm-test» where
+  root := `LeanLightEvmTests.Main
