@@ -87,11 +87,11 @@ def fetch (cfg : Config) (b : Anchored) (fx : Fetched) (w : Wants) : IO Fetched 
   return fx
 
 /-- The code to fetch with the accounts just proved: those whose proved code hash is not the
-empty code's, so that the next run finds it. Read from `Driver.factsOf`, never from the
+empty code's, so that the next run finds it. Read from `Driver.factsAt`, never from the
 endpoint's account fields. -/
 def codeWanted (cfg : Config) (b : Anchored) (fx : Fetched) (fresh : List Address) :
     IO (List Address) := do
-  match factsOf cfg.chain b.beacon b.rlp fx with
+  match factsAt b.el.stateRoot fx with
   | .error _ => return []
   | .ok f =>
     return fresh.filter fun a =>
