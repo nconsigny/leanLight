@@ -26,6 +26,7 @@ alone: a library, its proofs, its tests and a command-line client.
 | `Main.lean`, `LeanLightCli/` | `leanlight`, the command-line client (HTTP through `curl`) | `LeanLight` |
 | `bench/` | The comparison with [Helios](https://github.com/a16z/helios) on the same endpoints (`compare.py`), Helios's checks replayed offline on the same recorded bytes (`helios-replay`), and their results | Python 3, Rust |
 | `scripts/` | The axiom audit and the kernel replay | |
+| `evm/` | Optional, a package of its own: a checked local `eth_call` at the anchored block over [EthLib](https://github.com/ethereum/EthLib)'s EVM, vendored; its proofs (`evm/proofs/`), tests and the `leanlight-evm` client ([below](#optional-local-eth_call)) | `LeanLight`, `Std`'s tree maps; proofs: Mathlib |
 
 What the proofs cover, in brief (the statements are in the files):
 
@@ -269,6 +270,83 @@ while Helios asks one call per read after it.
 Every value leanLight returned equalled the endpoint's at its block, and Helios's wherever Helios
 answered at that block.
 
+## Optional: local eth_call
+
+`evm/` is a second Lake package, `leanlight-evm`, that answers `eth_call` locally at the block the
+light client anchored, on the accounts, slots and code it proved there, and answers only when the
+run read nothing else (`docs/evm.md` has the details). Requiring `leanlight` alone fetches and
+builds none of it. To depend on it (Lake's `git URL @ REV / SUBDIR` form):
+
+```lean
+require «leanlight-evm» from git "https://github.com/nconsigny/leanLight" @ "<rev>" / "evm"
+```
+
+**What it adds.** `LeanLightEvm.call`, the checked entry: it runs
+[EthLib](https://github.com/ethereum/EthLib)'s EVM (pin `230e355b`, vendored byte for byte in
+`evm/EthLib`, CC0) on the facts it is given and answers only when every account, slot and code the
+run touched, the sender and the recipient, EIP-7610's storage roots and every `BLOCKHASH` asked
+are among them; otherwise it names what to fetch (`needs`) or refuses. No gas price is ever
+named; EIP-3860's init-code limit is applied; the fork and blob schedule come from the header's
+timestamp in a table derived from leanLight's own chain table (`LeanLightEvm.Chain`, refused past
+a reviewed horizon; a consumer passes its own table for another chain); execution gas is capped at
+2^24, with a refusal whenever the cap could change the answer; budgets bound rounds, keys, code and
+request data. `LeanLightEvm.Driver.run` builds that input from leanLight's store and the fetched
+bytes through leanLight's readers only (`Anchor.bind`, `Facts.storageAt`, the code-hash check,
+EIP-2935's history contract for ancestors). `leanlight-evm` is the command-line client:
+
+```sh
+(cd evm && lake build)    # evm/.lake/build/bin/leanlight-evm
+leanlight-evm --consensus-rpc URL[,URL...] --execution-rpc URL[,URL...] \
+  (--checkpoint 0xROOT | --unsafe-untrusted-checkpoint) [--from ADDR] [--value WEI] [--gas N] \
+  [--compare] [--json] [-v] (call TO [DATA] | create INITCODE | estimate TO [DATA])
+```
+
+It syncs as `leanlight` does, then runs the call in rounds, each fetching at the anchored block
+what the previous run asked for (`eth_getProof`, `eth_getCode`, the history contract's proofs).
+`estimate` prints a gas at which the checked call succeeds and one below at which it does not,
+each a checked run. `--compare` prints the endpoint's own `eth_call`, marked unchecked.
+
+**What is proved** (`evm/proofs`, every constant of `LeanLightEvm`, its proofs and the vendored
+EthLib audited to rest on Lean's three axioms only, 8,498 constants; 229 modules replayed through
+the kernel; `evm/scripts/check-axioms.sh`, `check-kernel.sh`):
+
+- `call_agrees`: an answer of `call` is the plain run's (EthLib's `processMessageCall`, no
+  observer) on every full state the facts hold in, whose storage sits at existing accounts and
+  which holds its code, for the chain's ancestors; a refusal is the plain run's refusal. It rests
+  on EthLib's noninterference theorem `processMessageCall_agrees`, vendored with it.
+- `reaches_run_agrees`: composed with the light client. At a store reached from the checkpoint,
+  an answer of `Driver.run` was given at an anchor `AnchorProved` holds for (as for `leanlight`'s
+  reads), with the EVM's header read from the RLP whose Keccak-256 is the anchor's block hash, and
+  is the plain run's on every EthLib state that represents the world state whose trie has that
+  header's state root (`Represents`, with no empty account, EIP-161 and EIP-7523), unless
+  Keccak-256 collides on byte strings the theorem names. The hypotheses left are the same kind as
+  leanLight's (the BLS ones and `Committee.Consistent`), plus that the chain's ancestor hashes are
+  those EIP-2935's history contract holds, which the driver reads.
+- Not proved: that `call`'s preparation is EthLib's own `eth_call` (`Rpc/Call.lean`, not
+  vendored), and that EthLib's EVM computes what a node computes. Both are tested.
+
+**What is tested** (`cd evm && lake exe leanlight-evm-test [--quick]`): about 1,100 recorded
+mainnet and Sepolia calls (`evm/tests/vectors`, public chain data) answered or refused as the node
+did, sweeps that withhold or corrupt each fact, two blocks of `eth_getProof` answers read through
+the driver's readers with forgeries refused, synthetic worlds against the plain run, hostile calls
+within the budgets. Measured: `--quick` 2,740 checks in 1 min 50 s; the full run 18,911 checks in
+15 min, none failed (one core of a shared 32-core machine).
+
+**What it trusts beyond leanLight.** `Std`'s tree maps (`Std.Data.ExtTreeMap`,
+`Std.Data.ExtTreeSet` and the 32 Std modules they import), which EthLib's state is made of: the
+one exception to "Lean core only", checked by `evm/scripts/check-runtime.sh` (the closure is Init,
+those modules, the vendored EVM and `LeanLight`; no `implemented_by`, `extern`, `opaque`,
+`unsafe`, `partial`, `sorry` or `axiom` in it). EthLib's EVM as the specification of the EVM. The
+fetch loop of `leanlight-evm`, as `leanlight`'s: it can make a call fail, not a wrong answer pass.
+
+**Costs, measured** (2026-11-18). The vendored EVM builds in 35 s on 32 cores (2 min of CPU);
+`leanlight-evm` is 15 MB (unstripped). A live `balanceOf` of USDC (a proxy) for
+`0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045` on mainnet from a fresh checkpoint: 5 rounds, 9
+requests, 253 KB, 3.3 s wall time of which 53 ms verifying (the sync's signatures included), the
+answer equal to publicnode's `eth_call` at the same block. A `BLOCKHASH` call reads 256 history
+proofs (1.1 MB). `estimate` of a USDC transfer gave 45,122, and the node's `eth_call` at that block
+succeeds with 45,122 gas and reverts with 45,121.
+
 ## Reading the comments
 
 The code keeps the identifiers of the design it came from, leanKohakuDesktop's
@@ -285,7 +363,7 @@ The code keeps the identifiers of the design it came from, leanKohakuDesktop's
 ## Acknowledgements
 
 leanLight's proofs stand on three projects, whose code is vendored under
-`proofs/LeanLightProofs/Vendor/` as the readable specifications the runtime is proved against.
+`proofs/LeanLightProofs/Vendor/` as the readable specifications the runtime is proved against (and, for `evm/`, in `evm/EthLib`).
 Thank you to their authors:
 
 - **[ssz-specs](https://github.com/ethereum/ssz-specs)** (Ethereum Foundation, MIT), commit
@@ -295,6 +373,9 @@ Thank you to their authors:
   Lean, its readable layer and its G1 group-law proofs. KeyValidate, hash-to-G2 and
   FastAggregateVerify are proved equal to EthLib's, and the Jacobian formulas' proofs are
   ported from it.
+- **[EthLib](https://github.com/ethereum/EthLib)**, again, commit `230e355b`: its EVM and its
+  noninterference proofs, vendored in `evm/EthLib` (CC0-1.0) for the optional `leanlight-evm`,
+  which runs that EVM and whose agreement theorem rests on EthLib's `processMessageCall_agrees`.
 - **[VCVio](https://github.com/Verified-zkEVM/VCVio)** (Apache-2.0), commits `afa6593f` (SHA-256)
   and `88efe971` (Keccak-256): SHA-256 and Keccak-256 in Lean, the specifications the runtime's
   hashes are proved against.
