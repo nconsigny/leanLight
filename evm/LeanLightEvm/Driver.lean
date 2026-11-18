@@ -15,7 +15,7 @@ input of `LeanLightEvm.call` only through leanLight's own readers, and runs it:
   and its fields agree with the beacon block). The EVM's header fields (`COINBASE`,
   `PREVRANDAO`, the excess blob gas, the parent beacon block root, the slot number, the parent
   hash) are read from the field list of the same RLP (`Anchor.fieldsB`, which `bind` reads too).
-* **Accounts and slots.** Each account's proof is read by `Facts.storage` under that header's
+* **Accounts and slots.** Each account's proof is read by `Facts.storageAt` under that header's
   state root, with its slots under the account's storage root. An account the trie proves absent
   reads as the empty account, and becomes an absent fact: from Spurious Dragon on (EIP-161) a
   state holds no empty account, which EIP-7523 makes a rule on every chain past the Merge, so the
@@ -114,40 +114,55 @@ def addRead (f : Facts) (a : Address) (acct : Spec.Mpt.Account) (keys : List Byt
     { f with accounts := f.accounts.insert a fact
              slots := if keys.isEmpty then f.slots else f.slots.insert a slots }
 
-/-- The facts the accounts' proofs prove under the anchored header (`Facts.storage`, which binds
-`rlp` to the beacon header `b` by `Anchor.bind`), then the code each account holds. -/
-def factsOf (c : Chain) (b : Store.Header) (rlp : ByteArray) (fx : Fetched) :
-    Except Stop Facts := do
-  let mut f : Facts := {}
-  for p in fx.accounts do
-    let slots := p.slots.map fun (k, nodes) => (k.toList, nodes)
-    match LeanLight.Lc.Facts.storage c b rlp p.address.toList p.nodes slots with
-    | none => throw (.proof p.address)
-    | some (_, acct, vs) => f := addRead f p.address acct (p.slots.map (·.1)) vs
-  let proved := f
-  for (a, code) in fx.code do
+/-- The accounts' proofs read one after the other under the state root `stateRoot` by
+`LeanLight.Lc.Facts.storageAt` (the account under the state root, its slots under the account's
+storage root), each added to `f` (`addRead`); the first that does not verify stops. -/
+def readAccounts (stateRoot : List UInt8) : List AccountProof → Facts → Except Stop Facts
+  | [], f => .ok f
+  | p :: ps, f =>
+    match LeanLight.Lc.Facts.storageAt stateRoot p.address.toList p.nodes
+        (p.slots.map fun (k, nodes) => (k.toList, nodes)) with
+    | none => .error (.proof p.address)
+    | some (acct, vs) => readAccounts stateRoot ps (addRead f p.address acct (p.slots.map (·.1)) vs)
+
+/-- Code fetched for accounts, each kept in `f` only under the code hash that `proved` holds for
+its account, when it hashes to it (`LeanLight.Lc.Driver.codeOk`'s check); code for an account
+with no present fact, or that hashes to something else, stops. Code under the empty code's hash
+is never kept: the entry never asks for it, and EthLib's state reads it without a lookup. -/
+def readCode (proved : Facts) : List (Address × ByteArray) → Facts → Except Stop Facts
+  | [], f => .ok f
+  | (a, code) :: rest, f =>
     match proved.accounts[a]? with
     | some (.present _ _ codeHash _) =>
       if Spec.Common.keccak code.data.toList == codeHash.toList then
-        f := { f with code := f.code.insert codeHash code }
-      else throw (.code a)
-    | _ => throw (.code a)
-  return f
+        if codeHash == EthLib.Execution.State.EMPTY_CODE_HASH then readCode proved rest f
+        else readCode proved rest { f with code := f.code.insert codeHash code }
+      else .error (.code a)
+    | _ => .error (.code a)
+
+/-- The facts `fx` proves under the state root `stateRoot`: its accounts and slots
+(`readAccounts`), then its code (`readCode`). -/
+def factsAt (stateRoot : List UInt8) (fx : Fetched) : Except Stop Facts := do
+  let proved ← readAccounts stateRoot fx.accounts {}
+  readCode proved fx.code proved
+
+/-- The hashes of blocks `n`, `n + 1`, ..., one a slot proof of `slotNodes`, each read by
+`History.blockHash` under `stateRoot` with the history contract's account proof `accountNodes`. -/
+def ancestorsFrom (stateRoot : List UInt8) (accountNodes : ByteArray) :
+    Nat → List ByteArray → Except Stop (List Hash32)
+  | _, [] => .ok []
+  | n, sp :: sps =>
+    match History.blockHash stateRoot accountNodes sp n with
+    | some h => (bytes32 h :: ·) <$> ancestorsFrom stateRoot accountNodes (n + 1) sps
+    | none => .error (.history n)
 
 /-- The hashes of the blocks before block `number`, oldest first, the parent's last (at most
 256), each read by `History.blockHash` under `stateRoot` from the history proofs. -/
 def ancestorsOf (stateRoot : List UInt8) (number : Nat) (accountNodes : ByteArray)
-    (slotNodes : List ByteArray) : Except Stop (List Hash32) := do
+    (slotNodes : List ByteArray) : Except Stop (List Hash32) :=
   let k := min 256 number
-  if slotNodes.length != k then throw (.history (number - k))
-  let mut out : List Hash32 := []
-  let mut n := number - k
-  for sp in slotNodes do
-    match History.blockHash stateRoot accountNodes sp n with
-    | some h => out := out ++ [bytes32 h]
-    | none => throw (.history n)
-    n := n + 1
-  return out
+  if slotNodes.length = k then ancestorsFrom stateRoot accountNodes (number - k) slotNodes
+  else .error (.history (number - k))
 
 /-- A run of the driver: the outcome of `call`, with the anchored block it ran at. -/
 structure Ran where
@@ -160,20 +175,27 @@ structure Ran where
   /-- The input `call` ran on. -/
   input : Input
 
+/-- The input of `call` at an EL header already bound (`el`, and `fs` its RLP's field list): the
+EVM's header from the fields, the facts and ancestors read from `fx` under `el`'s state root. -/
+def inputAt (c : Chain) (table : List ChainRules) (el : Spec.Header.Header)
+    (fs : List (List UInt8)) (fx : Fetched) (r : Request) (round : Nat) : Except Stop Input := do
+  let some header := headerOf fs | throw .header
+  let facts ← factsAt el.stateRoot fx
+  let ancestors ← match fx.history with
+    | none => pure none
+    | some (ap, sps) => some <$> ancestorsOf el.stateRoot el.number ap sps
+  return { table, chainId := c.chainId, header, ancestors, facts, request := r, round }
+
 /-- **The checked `eth_call` at the anchor** (module doc): the anchor of `s` at clock `now`, the
-EL header `rlp` bound to it, the facts and ancestors read from `fx` by leanLight's readers, then
-`call` with the rules of `table`, the budgets `b`, the request `r` and the round `round`. -/
+EL header `rlp` bound to it by `Anchor.bind`, the input read from `fx` under its state root
+(`inputAt`), then `call` with the rules of `table`, the budgets `b`, the request `r` and the round
+`round`. -/
 def run (c : Chain) (s : Store.Store) (now : Nat) (rlp : ByteArray) (table : List ChainRules)
     (b : Budgets) (fx : Fetched) (r : Request) (round : Nat) : Except Stop Ran := do
   let some a := Store.anchored c s now | throw .noAnchor
   let some el := Anchor.bind c a.header rlp | throw .header
   let some fs := Anchor.fieldsB rlp | throw .header
-  let some header := headerOf fs | throw .header
-  let facts ← factsOf c a.header rlp fx
-  let ancestors ← match fx.history with
-    | none => pure none
-    | some (ap, sps) => some <$> ancestorsOf el.stateRoot el.number ap sps
-  let input : Input := { table, chainId := c.chainId, header, ancestors, facts, request := r, round }
+  let input ← inputAt c table el fs fx r round
   return { outcome := call b input, beacon := a.header, el, input }
 
 end LeanLightEvm.Driver
