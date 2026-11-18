@@ -55,3 +55,52 @@ jobs:
         env:
           LEANLIGHT_KERNEL_JOBS: "2"
         run: ../scripts/check-kernel.sh
+
+  # The optional evm/ package, independent of the jobs above: the runtime rule on LeanLightEvm
+  # and the vendored EthLib, the library and leanlight-evm, the recorded calls (--quick: no
+  # sweeps).
+  evm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: No unproved runtime code, EthLib as pinned
+        run: evm/scripts/check-runtime.sh
+      - name: Build leanlight-evm
+        working-directory: evm
+        run: lake build
+      - name: Tests
+        working-directory: evm
+        run: |
+          lake build leanlight-evm-test
+          ./.lake/build/bin/leanlight-evm-test --quick
+
+  # Its proofs: call_agrees and the composition with the light client, the axiom audit and the
+  # kernel replay. They import leanLight's driver proofs, hence Mathlib's cache.
+  evm-proofs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Mathlib's cache
+        working-directory: evm/proofs
+        run: lake exe cache get
+      - name: Build the proofs
+        working-directory: evm/proofs
+        run: lake build
+      - name: Axiom audit
+        run: evm/scripts/check-axioms.sh
+      - name: Kernel replay
+        env:
+          LEANLIGHT_KERNEL_JOBS: "2"
+        run: evm/scripts/check-kernel.sh

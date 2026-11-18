@@ -6,6 +6,7 @@ leanLight was extracted from the light client of [leanKohakuDesktop](https://git
 |---|---|
 | [`INVARIANTS.md`](INVARIANTS.md) | Rows 25a to 25l: what the code and proofs claim, the theorems behind each claim, and its status |
 | [`spec-16-light-client.md`](spec-16-light-client.md) | The light client's design, verbatim: why, the protocol, the cryptography, anchored reads, and the decisions as they were taken. It also covers how the wallet runs the light client (`lkd-lc`, netd, Tor, the UI), which is not part of leanLight |
+| [`evm.md`](evm.md) | The optional `evm/` package, written for leanLight: the checked `eth_call`, its driver over the light client, what is proved (`call_agrees`, `reaches_run_agrees`), tested and trusted |
 
 ## Where leanLight has moved on
 
