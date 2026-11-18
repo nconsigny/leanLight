@@ -1,0 +1,407 @@
+module
+
+public import EthLib.Base.Proofs.MapM
+public import EthLib.Execution.Evm.Call.MessageCall
+public import EthLib.Execution.Proofs.Evm.Interpreter
+
+/-!
+# Proofs: `Evm.Call.MessageCall`
+
+A message that fails leaves the writes of the transaction as they were before the message.
+
+Only the record of the created accounts may differ.
+
+Its state is a rollback to the state it started from, which keeps the reads of its last frame.
+
+A message that succeeds appends its logs to those of the caller and adds its refund.
+
+A message that fails passes on no log, no refund and no account to delete.
+
+Its touches stay undone, except at the precompile 0x03 from Spurious Dragon to Paris.
+
+A message ends with no more execution gas than it was given.
+
+From Glamsterdam, a revert rolls the state gas of the frame back to its baseline.
+
+A message and a creation fail only with an error that aborts the run.
+
+The deposit of code at the end of a creation keeps the substate and the memory.
+
+Its state is the snapshot restored, the state it was given, or that state with the code set.
+-/
+
+@[expose] public section
+
+namespace EthLib.Execution.Evm
+
+open EthLib.Base (Address Bytes32 Fork Hash32 bind_eq_error)
+open EthLib.Execution.State (TransactionState)
+
+variable {fork : Fork} {Meter : Type} [GasMeter Meter]
+
+/-- A message with no observer unfolds to its run in the monad of errors.
+
+It moves the value, then runs a precompile or the frame of its code, and rolls back on failure. -/
+theorem processMessage_unfold [LawfulGasMeter Meter] (fork : Fork) (message : Message fork)
+    (state : TransactionState) (substate : Substate) (meter : Meter)
+    (held : GasMeter.gasHeld meter ≤ message.gas) :
+    processMessage fork message state substate meter held = (
+      let rollback (ended : { evm : Evm fork Meter // GasMeter.gasHeld evm.gas ≤ message.gas }) :
+          { evm : Evm fork Meter // GasMeter.gasHeld evm.gas ≤ message.gas } :=
+        ⟨rollbackOnError state ended.val, by
+          unfold rollbackOnError
+          split
+          · dsimp only
+            split
+            · exact Nat.le_trans (LawfulGasMeter.gasHeld_rollback _) ended.property
+            · exact ended.property
+          · exact ended.property⟩
+      Except.map rollback do
+        let state := startState fork message state
+        let transfers := message.shouldTransferValue ∧ message.value ≠ 0
+        let state ←
+          if transfers then
+            (state.moveEther fork message.caller message.currentTarget message.value).mapError
+              EvmError.state
+          else pure state
+        let substate :=
+          if transfers then
+            { substate with
+              logs := pushTransferLog fork substate.logs message.caller message.currentTarget
+                message.value
+              simulatedLogs := pushSimulatedTransferLog fork substate.simulatedLogs
+                message.caller message.currentTarget message.value }
+          else substate
+        let evm : Evm fork Meter := startFrame message state substate meter
+        match precompileAddress fork message with
+        | some address =>
+          if message.disablePrecompiles then
+            pure ⟨{ evm with running := false }, held⟩
+          else
+            match h : runPrecompile fork address evm with
+            | some after => pure ⟨after, Nat.le_trans (gasHeld_runPrecompile_le h) held⟩
+            | none => pure ⟨{ evm with running := false }, held⟩
+        | none =>
+          match h : runFrame (step fork) (step_decreases fork) message.gas
+              (fun caller child _ =>
+                match child.target with
+                | some _ => processMessage fork child caller.state caller.substate.child
+                | none => processCreateMessage fork child caller.state caller.substate.child)
+              evm held with
+          | .error e => throw e
+          | .ok after => pure ⟨after, Nat.le_trans (gasHeld_runFrame_le h) held⟩) := by
+  have key : ∀ (runChild : MessageRunner fork Meter message.gas) (evm : Evm fork Meter)
+      (within : GasMeter.gasHeld evm.gas ≤ message.gas),
+      runFrameWith (fun _ _ => pure ()) (step fork) (step_decreases fork) message.gas runChild
+        evm within =
+      match h : runFrame (step fork) (step_decreases fork) message.gas runChild evm within with
+      | .error e => throw e
+      | .ok after => pure ⟨after, Nat.le_trans (gasHeld_runFrame_le h) within⟩ := by
+    intro runChild evm within
+    symm
+    split <;> rename_i hr <;> unfold runFrame at hr <;>
+      cases hw : runFrameWith (fun _ _ => pure ()) (step fork) (step_decreases fork) message.gas
+        runChild evm within <;>
+      rw [hw] at hr <;>
+      simp only [Functor.map, Except.map, pure, Except.pure, throw,
+        throwThe, MonadExceptOf.throw, reduceCtorEq, Except.ok.injEq, Except.error.injEq] at hr ⊢
+    · exact hr.symm
+    · exact Subtype.ext hr.symm
+  rw [processMessage, processMessageWith]
+  show Except.map _ _ = Except.map _ _
+  congr 1
+  dsimp only
+  cases Except.mapError EvmError.state (TransactionState.moveEther fork
+      (startState fork message state) message.caller message.currentTarget message.value) <;>
+    congr 1 <;> cases precompileAddress fork message <;> first | rfl | exact key _ _ _
+
+/-- A creation with no observer unfolds to its run in the monad of errors.
+
+It prepares the account, runs the message, then deposits the code. -/
+theorem processCreateMessage_unfold [LawfulGasMeter Meter] (fork : Fork) (message : Message fork)
+    (state : TransactionState) (substate : Substate) (meter : Meter)
+    (held : GasMeter.gasHeld meter ≤ message.gas) :
+    processCreateMessage fork message state substate meter held = (do
+      let prepared ← prepareCreation fork state message.currentTarget
+      let ⟨evm, used⟩ ← processMessage fork message prepared substate meter held
+      match h : depositCode fork state evm with
+      | .error e => throw e
+      | .ok after => pure ⟨after, Nat.le_trans (gasHeld_depositCode_le h) used⟩) := by
+  rw [processCreateMessage, processCreateMessageWith]
+  cases prepareCreation fork state message.currentTarget <;> rfl
+
+/-- The same writes as a snapshot, apart from the record of the created accounts. -/
+structure SameWrites (tx snapshot : TransactionState) : Prop where
+  accountWrites : tx.accountWrites = snapshot.accountWrites
+  storageWrites : tx.storageWrites = snapshot.storageWrites
+  codeWrites : tx.codeWrites = snapshot.codeWrites
+  storageClears : tx.storageClears = snapshot.storageClears
+  transientStorage : tx.transientStorage = snapshot.transientStorage
+
+/-- A restored snapshot has the writes of the snapshot. -/
+theorem sameWrites_restoreTxState (tx snapshot : TransactionState) :
+    SameWrites (tx.restoreTxState snapshot) snapshot :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Same writes are reflexive. -/
+theorem SameWrites.refl (tx : TransactionState) : SameWrites tx tx :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Same writes are symmetric. -/
+theorem SameWrites.symm {a b : TransactionState} (h : SameWrites a b) : SameWrites b a :=
+  ⟨h.accountWrites.symm, h.storageWrites.symm, h.codeWrites.symm, h.storageClears.symm,
+    h.transientStorage.symm⟩
+
+/-- Same writes are transitive. -/
+theorem SameWrites.trans {a b c : TransactionState} (hab : SameWrites a b)
+    (hbc : SameWrites b c) : SameWrites a c :=
+  ⟨hab.accountWrites.trans hbc.accountWrites, hab.storageWrites.trans hbc.storageWrites,
+    hab.codeWrites.trans hbc.codeWrites, hab.storageClears.trans hbc.storageClears,
+    hab.transientStorage.trans hbc.transientStorage⟩
+
+/-- Recording an account read keeps the writes. -/
+theorem SameWrites.recordAccountRead (tx : TransactionState) (address : Address) :
+    SameWrites (tx.recordAccountRead address) tx :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Recording a storage read keeps the writes. -/
+theorem SameWrites.recordStorageRead (tx : TransactionState) (address : Address) (key : Bytes32) :
+    SameWrites (tx.recordStorageRead address key) tx :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Copying reads from another transaction keeps the writes. -/
+theorem SameWrites.withReadsOf (tx other : TransactionState) :
+    SameWrites (tx.withReadsOf other) tx :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Two states with the same writes and the same block read the same optional accounts. -/
+theorem SameWrites.getAccountOptional {tx snapshot : TransactionState}
+    (h : SameWrites tx snapshot) (hp : tx.parent = snapshot.parent) (address : Address) :
+    tx.getAccountOptional address = snapshot.getAccountOptional address := by
+  simp only [TransactionState.getAccountOptional, h.accountWrites, hp]
+
+/-- Two states with the same writes and the same block read the same accounts. -/
+theorem SameWrites.getAccount {tx snapshot : TransactionState}
+    (h : SameWrites tx snapshot) (hp : tx.parent = snapshot.parent) (address : Address) :
+    tx.getAccount address = snapshot.getAccount address := by
+  simp only [TransactionState.getAccount, h.getAccountOptional hp address]
+
+/-- Two states with the same writes and the same block read the same code. -/
+theorem SameWrites.getCode {tx snapshot : TransactionState}
+    (h : SameWrites tx snapshot) (hp : tx.parent = snapshot.parent) (hash : Hash32) :
+    tx.getCode hash = snapshot.getCode hash := by
+  simp only [TransactionState.getCode, h.codeWrites, hp]
+
+/-- Two states with the same writes and the same block read the same storage. -/
+theorem SameWrites.getStorage {tx snapshot : TransactionState}
+    (h : SameWrites tx snapshot) (hp : tx.parent = snapshot.parent)
+    (address : Address) (key : Bytes32) :
+    tx.getStorage address key = snapshot.getStorage address key := by
+  simp only [TransactionState.getStorage, h.storageWrites, h.storageClears, hp]
+
+/-- A message that fails leaves the writes of the transaction as they were before it. -/
+theorem processMessage_sameWrites_of_error [LawfulGasMeter Meter] {message : Message fork}
+    {state : TransactionState} {substate : Substate} {evm : Evm fork Meter}
+    {used : GasMeter.gasHeld evm.gas ≤ message.gas}
+    (h : processMessage fork message state substate = .ok ⟨evm, used⟩)
+    (failed : evm.error.isSome) : SameWrites evm.state state := by
+  rw [processMessage_unfold] at h
+  obtain ⟨ended, -, rolled⟩ := Base.map_ok_iff.mp h
+  have hval := congrArg Subtype.val rolled
+  simp only at hval
+  subst hval
+  unfold rollbackOnError at failed ⊢
+  split
+  · exact sameWrites_restoreTxState _ _
+  · simp_all
+
+/-- A message that fails ends with a state that rolls back to the state it started from.
+
+It is a rollback, so it keeps the reads of the state that it rolls back. -/
+theorem processMessage_state_of_error [LawfulGasMeter Meter] {message : Message fork}
+    {state : TransactionState} {substate : Substate} {evm : Evm fork Meter}
+    {used : GasMeter.gasHeld evm.gas ≤ message.gas}
+    (h : processMessage fork message state substate = .ok ⟨evm, used⟩)
+    (failed : evm.error.isSome) :
+    ∃ ended : TransactionState, evm.state = ended.restoreTxState state := by
+  rw [processMessage_unfold] at h
+  obtain ⟨ended, -, rolled⟩ := Base.map_ok_iff.mp h
+  have hval := congrArg Subtype.val rolled
+  simp only at hval
+  subst hval
+  unfold rollbackOnError at failed ⊢
+  split
+  · exact ⟨_, rfl⟩
+  · simp_all
+
+/-- A message ends with at most the execution gas it was given. -/
+theorem gasLeft_processMessage_le [LawfulGasMeter Meter] {message : Message fork}
+    {state : TransactionState} {substate : Substate}
+    {ended : { evm : Evm fork Meter // GasMeter.gasHeld evm.gas ≤ message.gas }}
+    (_ : processMessage fork message state substate = .ok ended) :
+    GasMeter.gasLeft ended.val.gas ≤ message.gas :=
+  Nat.le_trans (LawfulGasMeter.gasLeft_le_gasHeld _) ended.property
+
+/-- A creation ends with at most the execution gas it was given. -/
+theorem gasLeft_processCreateMessage_le [LawfulGasMeter Meter] {message : Message fork}
+    {state : TransactionState} {substate : Substate}
+    {ended : { evm : Evm fork Meter // GasMeter.gasHeld evm.gas ≤ message.gas }}
+    (_ : processCreateMessage fork message state substate = .ok ended) :
+    GasMeter.gasLeft ended.val.gas ≤ message.gas :=
+  Nat.le_trans (LawfulGasMeter.gasLeft_le_gasHeld _) ended.property
+
+/-- From Glamsterdam, a message that reverts rolls its state gas back to the baseline.
+
+The spill goes back to the execution gas, and the reservoir becomes the baseline. -/
+theorem rollbackOnError_of_revert {snapshot : TransactionState} {evm : Evm fork StateGasMeter}
+    (reverted : evm.error = some .revert) :
+    (rollbackOnError snapshot evm).gas = evm.gas.restore := by
+  simp [rollbackOnError, reverted, GasMeter.rollback]
+
+/-- An exceptional halt keeps the meter it halted with: that meter has already rolled back. -/
+theorem rollbackOnError_of_halt {snapshot : TransactionState} {evm : Evm fork Meter}
+    {error : EvmError} (halted : evm.error = some error) (notRevert : error ≠ .revert) :
+    (rollbackOnError snapshot evm).gas = evm.gas := by
+  simp [rollbackOnError, halted, notRevert]
+
+/-- A message that succeeds appends its logs and adds its refund. -/
+theorem incorporateChild_of_success {caller child : Evm fork Meter} (ok : child.error = none) :
+    (incorporateChild fork caller child).substate.logs =
+        caller.substate.logs ++ child.substate.logs ∧
+      (incorporateChild fork caller child).substate.refundCounter =
+        caller.substate.refundCounter + child.substate.refundCounter := by
+  simp [incorporateChild, ok]
+
+/-- A message that fails passes on no log, no refund, no account to delete and no access. -/
+theorem incorporateChild_of_error {caller child : Evm fork Meter} (failed : child.error.isSome) :
+    let after := incorporateChild fork caller child
+    after.substate.logs = caller.substate.logs ∧
+      after.substate.refundCounter = caller.substate.refundCounter ∧
+      after.substate.accountsToDelete = caller.substate.accountsToDelete ∧
+      after.substate.accessedAddresses = caller.substate.accessedAddresses ∧
+      after.substate.accessedStorageKeys = caller.substate.accessedStorageKeys := by
+  have : child.error.isNone = false := by cases h : child.error <;> simp_all
+  simp [incorporateChild, this]
+
+omit [GasMeter Meter] in
+/-- Outside Spurious Dragon to Paris, a failed message leaves the touched accounts alone. -/
+theorem touchedOnError_of_outside {caller child : Evm fork Meter}
+    (outside : fork < .spuriousDragon ∨ .paris ≤ fork) :
+    touchedOnError fork caller child = caller.substate.touchedAccounts := by
+  unfold touchedOnError
+  split
+  · rename_i h
+    obtain ⟨h1, h2, -⟩ := h
+    exfalso
+    revert h1 h2 outside
+    cases fork <;> decide
+  · rfl
+
+/-- An error of the state aborts the run. -/
+private theorem aborts_of_mapError_state {α : Type} {x : Except State.StateError α}
+    {e : EvmError} (h : x.mapError EvmError.state = .error e) : e.aborts = true := by
+  cases x <;> simp [Except.mapError] at h
+  subst h
+  rfl
+
+/-- A message and a creation fail only with an error that aborts the run.
+
+It is the induction on the gas of the message, as the messages of its code have less gas. -/
+theorem aborts_of_process_eq_error [LawfulGasMeter Meter] (n : Nat) :
+    ∀ message : Message fork, message.gas = n →
+      (∀ state substate (meter : Meter) held e,
+        processMessage fork message state substate meter held = .error e → e.aborts = true) ∧
+      ∀ state substate (meter : Meter) held e,
+        processCreateMessage fork message state substate meter held = .error e →
+          e.aborts = true := by
+  induction n using Nat.strongRecOn with
+  | _ n ih =>
+    intro message hn
+    -- The messages of its code have less gas, so they fail only with an error that aborts.
+    have runner : ∀ (caller : Evm fork Meter) (child : Message fork)
+        (lt : child.gas < message.gas) e, (match child.target with
+          | some _ => processMessage (Meter := Meter) fork child caller.state caller.substate.child
+          | none => processCreateMessage (Meter := Meter) fork child caller.state
+            caller.substate.child) = .error e → e.aborts = true := by
+      intro caller child lt e h
+      split at h
+      · exact (ih child.gas (hn ▸ lt) child rfl).1 _ _ _ _ _ h
+      · exact (ih child.gas (hn ▸ lt) child rfl).2 _ _ _ _ _ h
+    have call : ∀ state substate (meter : Meter) held e,
+        processMessage fork message state substate meter held = .error e → e.aborts = true := by
+      intro state substate meter held e h
+      rw [processMessage_unfold] at h
+      simp only [Except.map] at h
+      split at h
+      · rename_i hdo
+        cases h
+        split at hdo
+        all_goals
+          rcases bind_eq_error hdo with hm | ⟨state1, -, hdo⟩
+          · first
+              | exact aborts_of_mapError_state hm
+              | cases hm
+          · repeat' split at hdo
+            all_goals first
+              | (cases hdo; done)
+              | (rename_i hrun; cases hdo; exact aborts_of_runFrame_eq_error runner hrun)
+      · cases h
+    refine ⟨call, fun state substate meter held e h => ?_⟩
+    rw [processCreateMessage_unfold] at h
+    rcases bind_eq_error h with hp | ⟨prepared, -, h⟩
+    · unfold prepareCreation at hp
+      split at hp
+      · exact aborts_of_mapError_state hp
+      · cases hp
+    · rcases bind_eq_error h with hm | ⟨⟨evm, used⟩, -, h⟩
+      · exact call _ _ _ _ _ hm
+      · split at h
+        split at h
+        · rename_i hdep
+          cases h
+          unfold depositCode at hdep
+          dsimp only at hdep
+          repeat' split at hdep
+          all_goals first
+            | (cases hdep; done)
+            | (rcases bind_eq_error hdep with hm | ⟨_, -, hdep⟩
+               · exact aborts_of_mapError_state hm
+               · cases hdep)
+        · cases h
+
+/-! ## The deposit of code -/
+
+/-- A successful deposit of code keeps the substate and the memory of the frame of the init code.
+
+Its state is the snapshot restored, the state of that frame, or that state with the code set.
+
+The code is the output of the frame, at its current target. -/
+theorem depositCode_cases {snapshot : TransactionState} {evm after : Evm fork Meter}
+    (h : depositCode fork snapshot evm = .ok after) :
+    after.substate = evm.substate ∧ after.memory = evm.memory ∧
+      (after.state = evm.state.restoreTxState snapshot ∨ after.state = evm.state ∨
+        evm.state.setCode fork evm.message.currentTarget evm.output = .ok after.state) := by
+  unfold depositCode at h
+  dsimp only at h
+  split at h
+  · cases h
+    exact ⟨rfl, rfl, .inl rfl⟩
+  split at h
+  · cases h
+    exact ⟨rfl, rfl, .inl rfl⟩
+  split at h
+  · cases h
+    exact ⟨rfl, rfl, .inl rfl⟩
+  split at h
+  · cases h
+    split
+    · exact ⟨rfl, rfl, .inl rfl⟩
+    · exact ⟨rfl, rfl, .inr (.inl rfl)⟩
+  split at h
+  · cases h
+    exact ⟨rfl, rfl, .inl rfl⟩
+  obtain ⟨st, hst, h⟩ := Base.bind_ok_iff.mp h
+  cases h
+  exact ⟨rfl, rfl, .inr (.inr (Base.mapError_ok_iff.mp hst))⟩
+
+end EthLib.Execution.Evm

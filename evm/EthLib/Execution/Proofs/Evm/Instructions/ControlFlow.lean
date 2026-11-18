@@ -1,0 +1,249 @@
+module
+
+public import EthLib.Execution.Evm.Instructions.ControlFlow
+public import EthLib.Execution.Proofs.Evm.Instructions.EnvironmentData
+public import EthLib.Execution.Proofs.Evm.Machine.JumpDest
+public import EthLib.Execution.Proofs.Evm.Step
+
+/-!
+# Proofs: `Evm.Instructions.ControlFlow`
+
+JUMP that pays fails exactly when its destination is not a valid jump destination.
+
+Otherwise it moves the program counter to the destination.
+
+JUMPI with a zero condition goes to the next opcode, whatever the destination.
+
+JUMPI with another condition fails exactly as JUMP does.
+
+With a nonzero condition and a valid destination, JUMPI that pays drops both words.
+
+Then it moves the program counter to the destination.
+
+STOP halts the frame and moves the program counter by 1, at no price.
+
+JUMPDEST pays its price, then moves the program counter by 1.
+
+PC and GAS, on a stack with room for one more word, pay their price, then push a word.
+
+PC pushes the program counter of the opcode.
+
+GAS pushes the gas left after its own price.
+
+When the frame holds the flags of its code, the valid destinations are the JUMPDEST opcodes.
+
+None of these instructions changes the message, the state or the substate of the frame.
+
+None of them changes memory either.
+-/
+
+@[expose] public section
+
+namespace EthLib.Execution.Evm
+
+open EthLib.Base (Fork U256 byteAt)
+open GasCosts
+
+variable {fork : Fork} {Meter : Type} [GasMeter Meter]
+
+/-- JUMP that pays fails exactly when its destination is not valid. -/
+theorem jumpStep_eq_error_iff {evm : Evm fork Meter} {destination : U256} {rest : List U256}
+    {gas : Meter} (h : evm.stack.val = destination :: rest)
+    (paid : GasMeter.charge evm.gas OPCODE_JUMP = .ok gas) :
+    jumpStep evm = .error .invalidJumpDest ↔
+      isValidJumpDest evm.validJumpDestinations destination.toNat = false := by
+  have hstack : evm.stack = ⟨destination :: rest, h ▸ evm.stack.property⟩ := Subtype.ext h
+  simp only [jumpStep, popWord, chargeGas, hstack, Stack.pop]
+  cases hv : isValidJumpDest evm.validJumpDestinations destination.toNat <;>
+    simp [paid, hv, bind, Except.bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw]
+
+/-- JUMP that pays, to a valid destination, moves the program counter there. -/
+theorem jumpStep_of_isValidJumpDest {evm : Evm fork Meter} {destination : U256} {rest : List U256}
+    {gas : Meter} (h : evm.stack.val = destination :: rest)
+    (paid : GasMeter.charge evm.gas OPCODE_JUMP = .ok gas)
+    (valid : isValidJumpDest evm.validJumpDestinations destination.toNat = true) :
+    jumpStep evm = .ok { evm with
+      stack := ⟨rest, by
+        have := evm.stack.property
+        rw [h, List.length_cons] at this
+        omega⟩,
+      gas, pc := destination.toNat } := by
+  have hstack : evm.stack = ⟨destination :: rest, h ▸ evm.stack.property⟩ := Subtype.ext h
+  simp [jumpStep, popWord, chargeGas, hstack, Stack.pop, paid, valid, bind, Except.bind, pure,
+    Except.pure]
+
+/-- JUMPI with a zero condition pays, then goes to the next opcode, whatever the destination. -/
+theorem jumpiStep_zero {evm : Evm fork Meter} {destination : U256} {rest : List U256}
+    (h : evm.stack.val = destination :: 0 :: rest) :
+    jumpiStep evm = (GasMeter.charge evm.gas OPCODE_JUMPI).map fun gas =>
+      { evm with
+        stack := ⟨rest, by
+          have := evm.stack.property
+          rw [h, List.length_cons, List.length_cons] at this
+          omega⟩,
+        gas, pc := evm.pc + 1 } := by
+  have hstack : evm.stack = ⟨destination :: 0 :: rest, h ▸ evm.stack.property⟩ := Subtype.ext h
+  simp only [jumpiStep, popWord, chargeGas, hstack, Stack.pop]
+  rcases hc : GasMeter.charge evm.gas OPCODE_JUMPI with _ | _ <;>
+    simp [hc, bind, Except.bind, pure, Except.pure, Except.map, advance]
+
+/-- JUMPI with a nonzero condition that pays fails exactly when the destination is not valid. -/
+theorem jumpiStep_eq_error_iff {evm : Evm fork Meter} {destination condition : U256}
+    {rest : List U256} {gas : Meter} (h : evm.stack.val = destination :: condition :: rest)
+    (nonzero : condition ≠ 0) (paid : GasMeter.charge evm.gas OPCODE_JUMPI = .ok gas) :
+    jumpiStep evm = .error .invalidJumpDest ↔
+      isValidJumpDest evm.validJumpDestinations destination.toNat = false := by
+  have hstack : evm.stack = ⟨destination :: condition :: rest, h ▸ evm.stack.property⟩ :=
+    Subtype.ext h
+  -- The condition is the word 0 of `BitVec`, as the instruction compares it.
+  have nz : ¬condition = 0#256 := nonzero
+  simp only [jumpiStep, popWord, chargeGas, hstack, Stack.pop]
+  cases hv : isValidJumpDest evm.validJumpDestinations destination.toNat <;>
+    simp [paid, hv, nz, bind, Except.bind, pure, Except.pure, throw, throwThe,
+      MonadExceptOf.throw]
+
+omit [GasMeter Meter] in
+/-- STOP halts the frame and moves past the opcode, at no price. -/
+theorem stopStep_eq (evm : Evm fork Meter) :
+    stopStep evm = .ok { evm with running := false, pc := evm.pc + 1 } := rfl
+
+/-- JUMPDEST pays, then goes to the next opcode. -/
+theorem jumpdestStep_eq (evm : Evm fork Meter) :
+    jumpdestStep evm = (GasMeter.charge evm.gas OPCODE_JUMPDEST).map fun gas =>
+      { evm with gas, pc := evm.pc + 1 } := by
+  rcases hc : GasMeter.charge evm.gas OPCODE_JUMPDEST with _ | _ <;>
+    simp [hc, jumpdestStep, chargeGas, bind, Except.bind, pure, Except.pure, Except.map, advance]
+
+/-- PC on a stack with room: pay, then push the program counter of the opcode. -/
+theorem controlFlowStep_pc_of_length_lt
+    {step : Evm fork Meter → Except EvmError (Evm fork Meter)}
+    (hstep : controlFlowStep .pc = some step) {evm : Evm fork Meter}
+    (room : evm.stack.val.length < STACK_LIMIT) :
+    step evm = (GasMeter.charge evm.gas OPCODE_PC).map fun gas =>
+      { evm with
+        gas
+        stack := ⟨BitVec.ofNat 256 evm.pc :: evm.stack.val, room⟩
+        pc := evm.pc + 1 } := by
+  simp only [controlFlowStep, Option.some.injEq] at hstep
+  subst hstep
+  exact readFrame_of_length_lt room
+
+/-- GAS on a stack with room: pay, then push the gas left after that price. -/
+theorem controlFlowStep_gas_of_length_lt
+    {step : Evm fork Meter → Except EvmError (Evm fork Meter)}
+    (hstep : controlFlowStep .gas = some step) {evm : Evm fork Meter}
+    (room : evm.stack.val.length < STACK_LIMIT) :
+    step evm = (GasMeter.charge evm.gas OPCODE_GAS).map fun gas =>
+      { evm with
+        gas
+        stack := ⟨BitVec.ofNat 256 (GasMeter.gasLeft gas) :: evm.stack.val, room⟩
+        pc := evm.pc + 1 } := by
+  simp only [controlFlowStep, Option.some.injEq] at hstep
+  subst hstep
+  exact readFrame_of_length_lt room
+
+/-- JUMPI with a nonzero condition that pays, to a valid destination, jumps there. -/
+theorem jumpiStep_of_isValidJumpDest {evm : Evm fork Meter} {destination condition : U256}
+    {rest : List U256} {gas : Meter} (h : evm.stack.val = destination :: condition :: rest)
+    (nonzero : condition ≠ 0) (paid : GasMeter.charge evm.gas OPCODE_JUMPI = .ok gas)
+    (valid : isValidJumpDest evm.validJumpDestinations destination.toNat = true) :
+    jumpiStep evm = .ok { evm with
+      stack := ⟨rest, by
+        have := evm.stack.property
+        rw [h, List.length_cons, List.length_cons] at this
+        omega⟩,
+      gas, pc := destination.toNat } := by
+  have hstack : evm.stack = ⟨destination :: condition :: rest, h ▸ evm.stack.property⟩ :=
+    Subtype.ext h
+  have nz : ¬condition = 0#256 := nonzero
+  simp [jumpiStep, popWord, chargeGas, hstack, Stack.pop, paid, valid, nz, bind, Except.bind, pure,
+    Except.pure]
+
+/-- With the flags of its code, JUMP that pays fails exactly off the JUMPDEST opcodes. -/
+theorem jumpStep_eq_error_iff_of_code {evm : Evm fork Meter} {destination : U256}
+    {rest : List U256} {gas : Meter}
+    (flags : evm.validJumpDestinations = validJumpDestinations evm.code)
+    (h : evm.stack.val = destination :: rest)
+    (paid : GasMeter.charge evm.gas OPCODE_JUMP = .ok gas) :
+    jumpStep evm = .error .invalidJumpDest ↔
+      ¬(destination.toNat ∈ opcodePositions evm.code ∧
+        byteAt evm.code destination.toNat = JUMPDEST) := by
+  rw [jumpStep_eq_error_iff h paid, flags, ← isValidJumpDest_iff, Bool.not_eq_true]
+
+/-- Each instruction of control flow keeps the message, the state, the substate and the code. -/
+theorem controlFlowStep_sameContext {op : Op}
+    {step : Evm fork Meter → Except EvmError (Evm fork Meter)}
+    (hstep : controlFlowStep op = some step) {evm after : Evm fork Meter}
+    (h : step evm = .ok after) : SameContext evm after := by
+  cases op <;> simp only [controlFlowStep, Option.some.injEq, reduceCtorEq] at hstep <;>
+    subst hstep
+  case pc | gas => exact readFrame_sameContext h
+  case stop =>
+    cases h
+    exact ⟨rfl, rfl, rfl, rfl⟩
+  case jumpdest =>
+    obtain ⟨_, h1, h⟩ := Base.bind_ok_iff.mp h
+    cases h
+    exact (chargeGas_sameContext h1).advance
+  case jump =>
+    obtain ⟨⟨_, _⟩, h1, h⟩ := Base.bind_ok_iff.mp h
+    obtain ⟨_, h2, h⟩ := Base.bind_ok_iff.mp h
+    simp only [throw, throwThe, MonadExceptOf.throw] at h
+    split at h
+    · cases h
+      have := (popWord_sameContext h1).trans (chargeGas_sameContext h2)
+      exact ⟨this.message, this.state, this.substate, this.code⟩
+    · cases h
+  case jumpi =>
+    obtain ⟨⟨_, _⟩, h1, h⟩ := Base.bind_ok_iff.mp h
+    obtain ⟨⟨_, _⟩, h2, h⟩ := Base.bind_ok_iff.mp h
+    obtain ⟨_, h3, h⟩ := Base.bind_ok_iff.mp h
+    have := ((popWord_sameContext h1).trans (popWord_sameContext h2)).trans
+      (chargeGas_sameContext h3)
+    simp only [throw, throwThe, MonadExceptOf.throw] at h
+    split at h
+    · cases h
+      exact this.advance
+    · split at h
+      · cases h
+        exact ⟨this.message, this.state, this.substate, this.code⟩
+      · cases h
+
+/-- Each instruction of control flow keeps memory. -/
+theorem memory_controlFlowStep {op : Op}
+    {step : Evm fork Meter → Except EvmError (Evm fork Meter)}
+    (hstep : controlFlowStep op = some step) {evm after : Evm fork Meter}
+    (h : step evm = .ok after) : after.memory = evm.memory := by
+  cases op <;> simp only [controlFlowStep, Option.some.injEq, reduceCtorEq] at hstep <;>
+    subst hstep
+  case pc | gas => exact memory_readFrame h
+  case stop =>
+    cases h
+    rfl
+  case jumpdest =>
+    obtain ⟨_, h1, h⟩ := Base.bind_ok_iff.mp h
+    cases h
+    simp only [advance, memory_chargeGas h1]
+  case jump =>
+    obtain ⟨⟨_, _⟩, h1, h⟩ := Base.bind_ok_iff.mp h
+    obtain ⟨_, h2, h⟩ := Base.bind_ok_iff.mp h
+    simp only [throw, throwThe, MonadExceptOf.throw] at h
+    split at h
+    · cases h
+      exact (memory_chargeGas h2).trans (popWord_eq_ok h1).2.1
+    · cases h
+  case jumpi =>
+    obtain ⟨⟨_, _⟩, h1, h⟩ := Base.bind_ok_iff.mp h
+    obtain ⟨⟨_, _⟩, h2, h⟩ := Base.bind_ok_iff.mp h
+    obtain ⟨_, h3, h⟩ := Base.bind_ok_iff.mp h
+    have m3 := ((memory_chargeGas h3).trans (popWord_eq_ok h2).2.1).trans (popWord_eq_ok h1).2.1
+    simp only [throw, throwThe, MonadExceptOf.throw] at h
+    split at h
+    · cases h
+      exact m3
+    · split at h
+      · cases h
+        exact m3
+      · cases h
+
+end EthLib.Execution.Evm
